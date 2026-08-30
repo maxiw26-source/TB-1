@@ -22,7 +22,9 @@ from strategy_v7 import calculate_signal
 
 
 DATA_FOLDER = "historical_data"
-SYMBOL = "BTCUSDT"
+SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+
+BACKTEST_DAYS = 300
 
 START_BALANCE = float(getattr(config, "START_BALANCE", 10000.0))
 CANDLE_LIMIT = max(int(getattr(config, "CANDLE_LIMIT", 300)), 220)
@@ -199,6 +201,10 @@ def check_position(position, candle):
             position["tp1_hit"] = True
             position["stop"] = position["entry"]
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
         if (
             not position["tp2_hit"]
             and high >= position["tp2"]
@@ -211,6 +217,10 @@ def check_position(position, candle):
                 "TP2",
             )
             position["tp2_hit"] = True
+<<<<<<< HEAD
+=======
+            position["stop"] = position["tp1"]
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
         if high >= position["tp3"] and position["remaining"] > 0:
             exit_part(position, position["tp3"], position["remaining"], "TP3")
@@ -230,7 +240,10 @@ def check_position(position, candle):
             )
             position["tp1_hit"] = True
             position["stop"] = position["entry"]
+<<<<<<< HEAD
 
+=======
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
         if (
             not position["tp2_hit"]
             and low <= position["tp2"]
@@ -366,11 +379,40 @@ def print_trade_diagnostics(trades):
     )
 
 
+<<<<<<< HEAD
 def run_backtest():
+=======
+def run_backtest(SYMBOL):
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
     entry_candles = load_csv(SYMBOL, "1m")
     confirmation_candles = load_csv(SYMBOL, "5m")
     trend_candles = load_csv(SYMBOL, "15m")
 
+<<<<<<< HEAD
+=======
+    cutoff_timestamp = (
+    entry_candles[-1]["timestamp"]
+    - BACKTEST_DAYS * 24 * 60 * 60 * 1000
+)
+    entry_candles = [
+    candle
+    for candle in entry_candles
+    if candle["timestamp"] >= cutoff_timestamp
+]
+
+    confirmation_candles = [
+    candle
+    for candle in confirmation_candles
+    if candle["timestamp"] >= cutoff_timestamp
+]
+
+    trend_candles = [
+    candle
+    for candle in trend_candles
+    if candle["timestamp"] >= cutoff_timestamp
+]
+
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
     confirmation_times = [candle["timestamp"] for candle in confirmation_candles]
     trend_times = [candle["timestamp"] for candle in trend_candles]
 
@@ -393,6 +435,12 @@ def run_backtest():
     rejected_by_cost = 0
 
     for index, candle in enumerate(entry_candles):
+        if index % 100000 == 0:
+            print(
+                f"Fortschritt: {index:,} / {len(entry_candles):,} "
+                f"({index / len(entry_candles) * 100:.1f} %)"
+            )
+
         timestamp = candle["timestamp"]
 
         if position is not None:
@@ -469,13 +517,51 @@ def run_backtest():
         if len(trend_history) < EMA_TREND_PERIOD:
             continue
 
+<<<<<<< HEAD
         result = calculate_signal(
             entry_history,
             confirmation_history,
             trend_history,
         )
+=======
+        
+
+        if SYMBOL == "ETHUSDT":
+                    swing_lookback = 7
+                    sweep_to_bos_candles = 12
+                    bos_to_fvg_candles = 4
+                    min_fvg_atr_ratio = 0.05
+        else:
+                    swing_lookback = 10
+                    sweep_to_bos_candles = 8
+                    bos_to_fvg_candles = 4
+                    min_fvg_atr_ratio = 0.10
+
+        
+
+        if SYMBOL == "ETHUSDT":
+                    swing_lookback = 7
+        else:
+                    swing_lookback = 10
+
+        result = calculate_signal(
+    entry_history,
+    confirmation_history,
+    trend_history,
+    swing_lookback,
+    sweep_to_bos_candles,
+    bos_to_fvg_candles,
+    min_fvg_atr_ratio,
+)
+
+        
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
         signal_checks += 1
+
+        if result is None:
+            continue
+            continue
 
         if result.get("signal") not in ("PENDING_LONG", "PENDING_SHORT"):
             continue
@@ -591,6 +677,84 @@ def run_backtest():
 
     print_trade_diagnostics(trades)
 
+<<<<<<< HEAD
+=======
+    return {
+    "symbol": SYMBOL,
+    "trades": len(trades),
+    "winners": len(winners),
+    "losers": len(losers),
+    "net_pnl": balance - START_BALANCE,
+    "profit_factor": profit_factor,
+    "max_drawdown": max_drawdown,
+    "fees": sum(trade["fees"] for trade in trades),
+    "slippage": sum(trade["slippage"] for trade in trades),
+}
+
+>>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
 if __name__ == "__main__":
-    run_backtest()
+    results = []
+
+    for symbol in SYMBOLS:
+        result = run_backtest(symbol)
+        results.append(result)
+
+    total_trades = sum(
+        result["trades"]
+        for result in results
+    )
+
+    total_net_pnl = sum(
+        result["net_pnl"]
+        for result in results
+    )
+
+    total_fees = sum(
+        result["fees"]
+        for result in results
+    )
+
+    total_slippage = sum(
+        result["slippage"]
+        for result in results
+    )
+
+    total_profit = 0.0
+    total_loss = 0.0
+
+    print("")
+    print("================================")
+    print("GESAMT-ZUSAMMENFASSUNG")
+    print("================================")
+
+    for result in results:
+        print(
+            result["symbol"],
+            "| Trades:",
+            result["trades"],
+            "| Netto:",
+            round(result["net_pnl"], 2),
+            "USDT",
+            "| PF:",
+            round(result["profit_factor"], 2),
+        )
+
+    print("--------------------------------")
+    print("Gesamt-Trades:", total_trades)
+    print(
+        "Gesamt-Netto:",
+        round(total_net_pnl, 2),
+        "USDT",
+    )
+    print(
+        "Gesamt-Gebühren:",
+        round(total_fees, 2),
+        "USDT",
+    )
+    print(
+        "Gesamt-Slippage:",
+        round(total_slippage, 2),
+        "USDT",
+    )
+    print("================================")

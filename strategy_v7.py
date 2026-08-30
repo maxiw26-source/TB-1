@@ -125,31 +125,39 @@ def bearish_bos(candles, index):
     return float(candles[index]["close"]) < level
 
 
-def bullish_fvg(candles, index, atr_value):
+def bullish_fvg(candles, index, atr_value, min_fvg_atr_ratio):
     if index < 2:
         return None
     lower = float(candles[index - 2]["high"])
     upper = float(candles[index]["low"])
-    if upper - lower <= atr_value * MIN_FVG_ATR_RATIO:
+    if upper - lower <= atr_value * min_fvg_atr_ratio:
         return None
     return {"lower": lower, "upper": upper, "index": index, "timestamp": int(candles[index]["timestamp"])}
 
 
-def bearish_fvg(candles, index, atr_value):
+def bearish_fvg(candles, index, atr_value, min_fvg_atr_ratio):
     if index < 2:
         return None
     lower = float(candles[index]["high"])
     upper = float(candles[index - 2]["low"])
-    if upper - lower <= atr_value * MIN_FVG_ATR_RATIO:
+    if upper - lower <= atr_value * min_fvg_atr_ratio:
         return None
     return {"lower": lower, "upper": upper, "index": index, "timestamp": int(candles[index]["timestamp"])}
 
 
-def find_setup(candles, atr_value, side):
+def find_setup(
+    candles,
+    atr_value,
+    side,
+    swing_lookback,
+    sweep_to_bos_candles,
+    bos_to_fvg_candles,
+    min_fvg_atr_ratio,
+):
     last = len(candles) - 1
     earliest = max(
-        SWING_LOOKBACK,
-        last - SWEEP_TO_BOS_CANDLES - BOS_TO_FVG_CANDLES - SETUP_EXPIRY_CANDLES,
+        swing_lookback,
+        last - sweep_to_bos_candles - bos_to_fvg_candles - SETUP_EXPIRY_CANDLES,
     )
 
     for sweep_index in range(earliest, last + 1):
@@ -171,7 +179,21 @@ def find_setup(candles, atr_value, side):
             latest_fvg = min(last, bos_index + BOS_TO_FVG_CANDLES)
 
             for fvg_index in range(bos_index, latest_fvg + 1):
-                fvg = bullish_fvg(candles, fvg_index, atr_value) if side == "LONG" else bearish_fvg(candles, fvg_index, atr_value)
+                fvg = (
+    bullish_fvg(
+        candles,
+        fvg_index,
+        atr_value,
+        min_fvg_atr_ratio,
+    )
+    if side == "LONG"
+    else bearish_fvg(
+        candles,
+        fvg_index,
+        atr_value,
+        min_fvg_atr_ratio,
+    )
+)
                 if fvg is None or last - fvg_index > SETUP_EXPIRY_CANDLES:
                     continue
 
@@ -199,8 +221,17 @@ def find_setup(candles, atr_value, side):
     return None
 
 
-def calculate_signal(entry_candles, confirmation_candles, trend_candles):
-    if len(entry_candles) < max(ATR_PERIOD + 2, SWING_LOOKBACK + 3, BOS_LOOKBACK + 3):
+def calculate_signal(
+    entry_candles,
+    confirmation_candles,
+    trend_candles,
+    swing_lookback,
+    sweep_to_bos_candles,
+    bos_to_fvg_candles,
+    min_fvg_atr_ratio,
+):
+
+    if len(entry_candles) < max(ATR_PERIOD + 2, swing_lookback + 3, BOS_LOOKBACK + 3):
         return {"signal": None, "reason": "Zu wenige 1m-Kerzen", "indicators": {}}
     if len(confirmation_candles) < ADX_PERIOD * 2 + 2:
         return {"signal": None, "reason": "Zu wenige 5m-Kerzen", "indicators": {}}
@@ -227,7 +258,15 @@ def calculate_signal(entry_candles, confirmation_candles, trend_candles):
         return {"signal": None, "reason": "ADX zu niedrig", "indicators": indicators}
 
     side = "LONG" if trend_close > trend_ema else "SHORT"
-    setup = find_setup(entry_candles, entry_atr, side)
+    setup = find_setup(
+    entry_candles,
+    entry_atr,
+    side,
+    swing_lookback,
+    sweep_to_bos_candles,
+    bos_to_fvg_candles,
+    min_fvg_atr_ratio,
+)
 
     if setup is None:
         return {"signal": None, "reason": f"{side} – kein gültiges Setup", "indicators": indicators}
@@ -240,6 +279,13 @@ def calculate_signal(entry_candles, confirmation_candles, trend_candles):
 
     indicators["setup"] = setup
     indicators["setup_id"] = setup_id
+
+    if side == "SHORT":
+        return {
+            "signal": None,
+            "reason": "SHORT vorübergehend deaktiviert",
+            "indicators": indicators,
+        }
 
     return {
         "signal": f"PENDING_{side}",
