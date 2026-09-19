@@ -31,6 +31,16 @@ LIVE_LEVERAGE = 2
 LIVE_MAX_DAILY_LOSS_USDT = 0.50
 LIVE_MAX_OPEN_POSITIONS = 1
 
+LIVE_TEST_SYMBOL = "BTCUSDT"
+LIVE_TEST_QTY = "0.0001"
+LIVE_TEST_MAX_ORDERS = 1
+LIVE_TEST_ORDER_COUNT = 0
+
+PENDING_SETUPS = {}
+LAST_PROCESSED_CANDLE = {}
+FORCE_TEST_SETUP = False
+
+
 POLL_SECONDS = 30
 
 START_BALANCE = float(
@@ -183,45 +193,236 @@ def get_account_balance():
 
     return response.json()
 
+def pending_entry_reached(pending_setup, candle):
+    setup = pending_setup["setup"]
+    entry = float(setup["entry"])
+
+    low = float(candle["low"])
+    high = float(candle["high"])
+
+    return low <= entry <= high
+
+def pending_setup_expired(pending_setup, current_candle_ts):
+    setup = pending_setup["setup"]
+
+    fvg_timestamp = int(setup["fvg_timestamp"])
+
+    expiry_candles = int(
+        getattr(config, "SETUP_EXPIRY_CANDLES", 5)
+    )
+
+    expiry_ms = expiry_candles * 60_000
+
+    return current_candle_ts > (
+        fvg_timestamp + expiry_ms
+    )
+
+def pending_setup_invalidated(pending_setup, candle):
+    setup = pending_setup["setup"]
+    signal = pending_setup["signal"]
+
+    stop = float(setup["stop"])
+    low = float(candle["low"])
+    high = float(candle["high"])
+
+    if signal == "PENDING_LONG":
+        return low <= stop
+
+    if signal == "PENDING_SHORT":
+        return high >= stop
+
+    return True
+
+def get_last_closed_1m_candle(symbol):
+    candles = get_klines(
+        symbol,
+        "1m",
+        limit=5,
+    )
+
+    now_ms = int(time.time() * 1000)
+
+    closed_candles = [
+        candle
+        for candle in candles
+        if candle["timestamp"] + 60_000 <= now_ms
+    ]
+
+    if not closed_candles:
+        return None
+
+    return closed_candles[-1]
+
+def build_order_plan(pending_setup, qty="0.0001"):
+    setup = pending_setup["setup"]
+    signal = pending_setup["signal"]
+
+    entry = float(setup["entry"])
+    stop = float(setup["stop"])
+
+    risk = abs(entry - stop)
+
+    if signal == "PENDING_LONG":
+        side = "BUY"
+        tp1 = entry + risk
+        tp2 = entry + (risk * 1.2)
+
+    elif signal == "PENDING_SHORT":
+        side = "SELL"
+        tp1 = entry - risk
+        tp2 = entry - (risk * 1.2)
+
+    else:
+        raise ValueError("Unbekanntes Pending-Signal")
+
+    return {
+        "symbol": pending_setup.get("symbol"),
+        "side": side,
+        "qty": str(qty),
+        "entry": entry,
+        "stop": stop,
+        "tp1": tp1,
+        "tp2": tp2,
+        "risk_distance": risk,
+    }
+
+def confirm_live_order(order_data):
+    print("")
+    print("LIVE-ORDER BEREIT:")
+    print(order_data)
+
+    answer = input(
+        "Order wirklich senden? (JA/NEIN): "
+    ).strip().upper()
+
+    return answer == "JA"
+
+def review_order_plan(pending_setup, qty="0.0001"):
+    plan = build_order_plan(
+        pending_setup,
+        qty=qty,
+    )
+
+    confirmed = confirm_live_order(plan)
+
+    if confirmed:
+        print("")
+        print("ORDER MANUELL BESTÄTIGT")
+        print(plan)
+    else:
+        print("")
+        print("ORDER ABGELEHNT")
+
+    return confirmed
+
 if __name__ == "__main__":
     print("LSOB V7 Live-Paper")
     print("LIVE_TRADING:", LIVE_TRADING)
 
-    for symbol in SYMBOLS:
-        result = analyze_symbol(symbol)
+    while True:
+        try:
+            for symbol in SYMBOLS:
+                result = analyze_symbol(symbol)
 
-        print("")
-        print(symbol)
+                if symbol in PENDING_SETUPS:
+                    candle = get_last_closed_1m_candle(symbol)
 
-        if result is None:
-            print("Signal: None")
-            continue
+                    if candle is not None:
+                        candle_ts = candle["timestamp"]
 
-        print(
-            "Signal:",
-            result.get("signal"),
-        )
+                        if pending_setup_invalidated(
+                            PENDING_SETUPS[symbol],
+                            candle,
+                        ):
+                            print("")
+                            print("PENDING-SETUP UNGÜLTIG:")
+                            print(symbol)
 
-        print(
-            "Grund:",
-            result.get("reason"),
-        )
+                            del PENDING_SETUPS[symbol]
+                            continue
 
-        print(
-            "API Key geladen:",
-             bool(BITUNIX_API_KEY)
-)
+                        if pending_setup_expired(
+                            PENDING_SETUPS[symbol],
+                            candle_ts,
+                        ):
+                            print("")
+                            print("PENDING-SETUP ABGELAUFEN:")
+                            print(symbol)
 
-        print(
-             "Secret geladen:",
-             bool(BITUNIX_SECRET_KEY)
-)
+                            del PENDING_SETUPS[symbol]
+                            continue
 
-print("")
-print("Account-Test:")
+                        if LAST_PROCESSED_CANDLE.get(symbol) != candle_ts:
+                            LAST_PROCESSED_CANDLE[symbol] = candle_ts
 
-try:
-    account = get_account_balance()
-    print(account)
-except Exception as e:
-    print("Fehler:", e)
+                        if pending_entry_reached(
+                            PENDING_SETUPS[symbol],
+                            candle,
+                        ):
+                            print("")
+                            print("V7 ENTRY ERREICHT:")
+                            print(symbol)
+                            print(PENDING_SETUPS[symbol])
+
+                            pending = PENDING_SETUPS[symbol].copy()
+                            pending["symbol"] = symbol
+
+                            review_order_plan(
+                                pending,
+                                qty="0.0001",
+                            )
+
+                            del PENDING_SETUPS[symbol]
+
+                print("")
+                print(symbol)
+
+                if result is None:
+                    print("Signal: None")
+                    continue
+
+                if str(
+                    result.get("signal", "")
+                ).startswith("PENDING_"):
+
+                    if symbol not in PENDING_SETUPS:
+                        PENDING_SETUPS[symbol] = {
+                            "created_at": datetime.now(
+                                timezone.utc
+                            ).isoformat(),
+                            "signal": result.get("signal"),
+                            "setup": result["indicators"]["setup"],
+                        }
+
+                        print(
+                            "NEUES PENDING-SETUP GESPEICHERT:"
+                        )
+                        print(PENDING_SETUPS[symbol])
+
+                        print("SETUP KEYS:", result.keys())
+                print(
+                    "Signal:",
+                    result.get("signal"),
+                )
+
+                print(
+                    "Grund:",
+                    result.get("reason"),
+                )
+
+            print("")
+            print(
+                "Warte",
+                POLL_SECONDS,
+                "Sekunden..."
+            )
+
+            time.sleep(POLL_SECONDS)
+
+        except KeyboardInterrupt:
+            print("Bot beendet.")
+            break
+
+        except Exception as e:
+            print("Fehler:", e)
+            time.sleep(POLL_SECONDS)
