@@ -168,6 +168,21 @@ def analyze_symbol(symbol):
 
     return result
 
+def get_account_balance():
+    url = BASE_URL + "/api/v1/cp/asset/query"
+
+    headers = get_auth_headers()
+
+    response = requests.get(
+        url,
+        headers=headers,
+        timeout=10,
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
 if __name__ == "__main__":
     print("LSOB V7 Live-Paper")
     print("LIVE_TRADING:", LIVE_TRADING)
@@ -201,3 +216,12 @@ if __name__ == "__main__":
              "Secret geladen:",
              bool(BITUNIX_SECRET_KEY)
 )
+
+print("")
+print("Account-Test:")
+
+try:
+    account = get_account_balance()
+    print(account)
+except Exception as e:
+    print("Fehler:", e)
