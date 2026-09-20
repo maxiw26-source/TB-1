@@ -17,9 +17,16 @@ from bot_runtime import (
     save_runtime_state,
 )
 from strategy_v7 import calculate_signal
+from bitunix_live import (
+    LiveExecutionError,
+    env_bool,
+    live_execution_status,
+    place_approved_entry,
+)
 from telegram_approval import (
     notify_plan,
     process_updates,
+    send_message,
     telegram_configured,
 )
 
@@ -400,8 +407,44 @@ def build_order_plan(
     }
 
 
-def open_position_from_plan(plan):
+def open_position_from_plan(
+    plan,
+    live_result=None,
+):
     symbol = plan["symbol"]
+
+    exchange_live = (
+        live_result is not None
+    )
+
+    exchange_position = (
+        {}
+        if live_result is None
+        else (
+            live_result.get(
+                "position"
+            )
+            or {}
+        )
+    )
+
+    exchange_response = (
+        {}
+        if live_result is None
+        else (
+            live_result.get(
+                "response"
+            )
+            or {}
+        )
+    )
+
+    exchange_order = (
+        exchange_response.get(
+            "data"
+        )
+        or {}
+    )
 
     OPEN_POSITIONS[symbol] = {
         "side": plan["side"],
@@ -431,6 +474,27 @@ def open_position_from_plan(plan):
         ),
         "break_even_active": False,
         "status": "OPEN",
+        "exchange_live": exchange_live,
+        "live_exit_profile": (
+            "FULL_TP2_PROTECTED"
+            if exchange_live
+            else "PAPER_V7_PARTIAL"
+        ),
+        "exchange_order_id": (
+            exchange_order.get(
+                "orderId"
+            )
+        ),
+        "exchange_client_id": (
+            exchange_order.get(
+                "clientId"
+            )
+        ),
+        "exchange_position_id": (
+            exchange_position.get(
+                "positionId"
+            )
+        ),
     }
 
     save_state()
@@ -469,6 +533,13 @@ def check_position_levels(
         position["tp2"]
     )
 
+    exchange_live = bool(
+        position.get(
+            "exchange_live",
+            False,
+        )
+    )
+
     if side == "BUY":
         if low <= stop:
             return "STOP"
@@ -477,7 +548,8 @@ def check_position_levels(
             return "TP2"
 
         if (
-            not position.get(
+            not exchange_live
+            and not position.get(
                 "tp1_hit",
                 False,
             )
@@ -493,7 +565,8 @@ def check_position_levels(
             return "TP2"
 
         if (
-            not position.get(
+            not exchange_live
+            and not position.get(
                 "tp1_hit",
                 False,
             )
@@ -857,21 +930,91 @@ def run_loop():
                         "erfolgreich verarbeitet."
                     )
                 else:
-                    if (
-                        plan["symbol"]
-                        not in OPEN_POSITIONS
+                    live_result = None
+                    execution_error = None
+
+                    if env_bool(
+                        "ENABLE_LIVE_EXECUTION",
+                        False,
                     ):
-                        open_position_from_plan(
-                            plan
-                        )
+                        try:
+                            live_result = (
+                                place_approved_entry(
+                                    approval
+                                )
+                            )
+                        except Exception as exc:
+                            execution_error = exc
+
+                            log_event(
+                                "LIVE_EXECUTION_BLOCKED",
+                                symbol=plan.get(
+                                    "symbol",
+                                    "",
+                                ),
+                                details={
+                                    "error": str(
+                                        exc
+                                    ),
+                                    "plan": plan,
+                                },
+                            )
+
+                            if telegram_configured():
+                                try:
+                                    send_message(
+                                        "LSOB V7 Live-Order "
+                                        "NICHT ausgeführt.\n"
+                                        f"Grund: {exc}"
+                                    )
+                                except Exception:
+                                    pass
+
+                    if execution_error is None:
+                        if (
+                            plan["symbol"]
+                            not in OPEN_POSITIONS
+                        ):
+                            open_position_from_plan(
+                                plan,
+                                live_result=live_result,
+                            )
+
+                        if live_result is not None:
+                            log_event(
+                                "LIVE_ENTRY_CONFIRMED",
+                                symbol=plan[
+                                    "symbol"
+                                ],
+                                details=live_result,
+                            )
+
+                            if telegram_configured():
+                                try:
+                                    send_message(
+                                        "LSOB V7 Live-Entry "
+                                        "ausgeführt und "
+                                        "bestätigt. "
+                                        "Exchange-SL und TP2 "
+                                        "sind gesetzt."
+                                    )
+                                except Exception:
+                                    pass
 
                     clear_approval()
                     approval = None
 
-                    print(
-                        "Bestätigter Plan "
-                        "wird jetzt überwacht."
-                    )
+                    if execution_error is None:
+                        print(
+                            "Bestätigter Plan "
+                            "wird jetzt überwacht."
+                        )
+                    else:
+                        print(
+                            "Live-Ausführung "
+                            "wurde blockiert:",
+                            execution_error,
+                        )
 
             if (
                 approval
@@ -1053,6 +1196,9 @@ def status_command():
                 ),
                 "approval": (
                     read_approval()
+                ),
+                "live_execution": (
+                    live_execution_status()
                 ),
             },
             indent=2,
