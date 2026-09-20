@@ -7,3 +7,5 @@ trade_events.csv
 __pycache__/
 *.pyc
 telegram_state.json
+live_execution_state.json
+live_execution_state.tmp
