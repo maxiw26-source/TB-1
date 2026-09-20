@@ -1,3 +1,4 @@
+import os
 from decimal import Decimal, ROUND_DOWN
 
 from bitunix_live import (
@@ -107,12 +108,38 @@ def build_reduce_only_market_payload(
     return payload
 
 
+def assert_partial_live_enabled():
+    if os.getenv(
+        "ENABLE_LIVE_PARTIALS",
+        "false",
+    ).strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "ja",
+        "on",
+    }:
+        raise LiveExecutionError(
+            "ENABLE_LIVE_PARTIALS ist nicht aktiviert"
+        )
+
+    if os.getenv(
+        "LIVE_PARTIALS_ACK",
+        "",
+    ).strip() != "I_UNDERSTAND_PARTIAL_EXITS":
+        raise LiveExecutionError(
+            "LIVE_PARTIALS_ACK fehlt oder ist falsch"
+        )
+
+
 def place_partial_close(
     symbol,
     position_side,
     qty,
     position_mode="ONE_WAY",
 ):
+    assert_partial_live_enabled()
+
     payload = build_reduce_only_market_payload(
         symbol,
         position_side,
@@ -133,6 +160,8 @@ def place_position_protection(
     stop_price,
     tp2_price,
 ):
+    assert_partial_live_enabled()
+
     payload = {
         "symbol": str(symbol).upper(),
         "positionId": str(position_id),
@@ -155,6 +184,8 @@ def move_position_stop_to_break_even(
     break_even_price,
     tp2_price,
 ):
+    assert_partial_live_enabled()
+
     payload = {
         "symbol": str(symbol).upper(),
         "positionId": str(position_id),
