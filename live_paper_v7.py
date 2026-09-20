@@ -38,8 +38,9 @@ LIVE_TEST_ORDER_COUNT = 0
 
 PENDING_SETUPS = {}
 LAST_PROCESSED_CANDLE = {}
+OPEN_POSITIONS = {}
 FORCE_TEST_SETUP = False
-
+FORCE_TEST_POSITION = False
 
 POLL_SECONDS = 30
 
@@ -253,7 +254,10 @@ def get_last_closed_1m_candle(symbol):
 
     return closed_candles[-1]
 
-def build_order_plan(pending_setup, qty="0.0001"):
+def build_order_plan(
+    pending_setup,
+    qty=LIVE_TEST_QTY,
+):
     setup = pending_setup["setup"]
     signal = pending_setup["signal"]
 
@@ -286,6 +290,109 @@ def build_order_plan(pending_setup, qty="0.0001"):
         "risk_distance": risk,
     }
 
+def open_position_from_plan(plan):
+    symbol = plan["symbol"]
+
+    OPEN_POSITIONS[symbol] = {
+        "side": plan["side"],
+        "qty": plan["qty"],
+        "entry": float(plan["entry"]),
+        "stop": float(plan["stop"]),
+        "tp1": float(plan["tp1"]),
+        "tp2": float(plan["tp2"]),
+        "tp1_hit": False,
+        "status": "OPEN",
+    }
+
+    return OPEN_POSITIONS[symbol]
+
+def check_position_levels(position, candle):
+    side = position["side"]
+
+    low = float(candle["low"])
+    high = float(candle["high"])
+
+    stop = float(position["stop"])
+    tp1 = float(position["tp1"])
+    tp2 = float(position["tp2"])
+
+    if side == "BUY":
+        if low <= stop:
+            return "STOP"
+
+        if high >= tp2:
+            return "TP2"
+
+        if high >= tp1:
+            return "TP1"
+
+    if side == "SELL":
+        if high >= stop:
+            return "STOP"
+
+        if low <= tp2:
+            return "TP2"
+
+        if low <= tp1:
+            return "TP1"
+
+    return None
+
+def update_position_state(position, event):
+    if event is None:
+        return position
+
+    if event == "TP1":
+        position["tp1_hit"] = True
+        position["status"] = "OPEN"
+        return position
+
+    if event == "TP2":
+        position["status"] = "CLOSED_TP2"
+        return position
+
+    if event == "STOP":
+        position["status"] = "CLOSED_STOP"
+        return position
+
+    return position
+
+def process_open_position(symbol, candle):
+    if symbol not in OPEN_POSITIONS:
+        return None
+
+    position = OPEN_POSITIONS[symbol]
+
+    event = check_position_levels(
+        position,
+        candle,
+    )
+
+    update_position_state(
+        position,
+        event,
+    )
+
+    if event is not None:
+        print("")
+        print("POSITION EVENT:")
+        print(symbol, event)
+
+    if position["status"].startswith("CLOSED_"):
+        closed_position = position.copy()
+
+        del OPEN_POSITIONS[symbol]
+
+        return {
+            "event": event,
+            "position": closed_position,
+        }
+
+    return {
+        "event": event,
+        "position": position,
+    }
+
 def confirm_live_order(order_data):
     print("")
     print("LIVE-ORDER BEREIT:")
@@ -297,7 +404,10 @@ def confirm_live_order(order_data):
 
     return answer == "JA"
 
-def review_order_plan(pending_setup, qty="0.0001"):
+def review_order_plan(
+    pending_setup,
+    qty=LIVE_TEST_QTY,
+):
     plan = build_order_plan(
         pending_setup,
         qty=qty,
@@ -324,8 +434,42 @@ if __name__ == "__main__":
             for symbol in SYMBOLS:
                 result = analyze_symbol(symbol)
 
+                if (
+                    FORCE_TEST_POSITION
+                    and symbol == "BTCUSDT"
+                    and symbol not in OPEN_POSITIONS
+                ):
+                    OPEN_POSITIONS[symbol] = {
+                        "side": "BUY",
+                        "qty": "0.0001",
+                        "entry": 100.0,
+                        "stop": 95.0,
+                        "tp1": 105.0,
+                        "tp2": 110.0,
+                        "tp1_hit": False,
+                        "status": "OPEN",
+                    }
+
+                print("")
+                print(symbol)
+
+                # Offene Position überwachen
+                if symbol in OPEN_POSITIONS:
+                    position_candle = get_last_closed_1m_candle(
+                        symbol
+                    )
+
+                    if position_candle is not None:
+                        process_open_position(
+                            symbol,
+                            position_candle,
+                        )
+
+                # Bereits gespeichertes Pending-Setup überwachen
                 if symbol in PENDING_SETUPS:
-                    candle = get_last_closed_1m_candle(symbol)
+                    candle = get_last_closed_1m_candle(
+                        symbol
+                    )
 
                     if candle is not None:
                         candle_ts = candle["timestamp"]
@@ -334,75 +478,89 @@ if __name__ == "__main__":
                             PENDING_SETUPS[symbol],
                             candle,
                         ):
-                            print("")
-                            print("PENDING-SETUP UNGÜLTIG:")
+                            print(
+                                "PENDING-SETUP UNGÜLTIG:"
+                            )
                             print(symbol)
 
                             del PENDING_SETUPS[symbol]
-                            continue
 
-                        if pending_setup_expired(
+                        elif pending_setup_expired(
                             PENDING_SETUPS[symbol],
                             candle_ts,
                         ):
-                            print("")
-                            print("PENDING-SETUP ABGELAUFEN:")
-                            print(symbol)
-
-                            del PENDING_SETUPS[symbol]
-                            continue
-
-                        if LAST_PROCESSED_CANDLE.get(symbol) != candle_ts:
-                            LAST_PROCESSED_CANDLE[symbol] = candle_ts
-
-                        if pending_entry_reached(
-                            PENDING_SETUPS[symbol],
-                            candle,
-                        ):
-                            print("")
-                            print("V7 ENTRY ERREICHT:")
-                            print(symbol)
-                            print(PENDING_SETUPS[symbol])
-
-                            pending = PENDING_SETUPS[symbol].copy()
-                            pending["symbol"] = symbol
-
-                            review_order_plan(
-                                pending,
-                                qty="0.0001",
+                            print(
+                                "PENDING-SETUP ABGELAUFEN:"
                             )
+                            print(symbol)
 
                             del PENDING_SETUPS[symbol]
 
-                print("")
-                print(symbol)
+                        elif (
+                            LAST_PROCESSED_CANDLE.get(symbol)
+                            != candle_ts
+                        ):
+                            LAST_PROCESSED_CANDLE[
+                                symbol
+                            ] = candle_ts
 
+                            if pending_entry_reached(
+                                PENDING_SETUPS[symbol],
+                                candle,
+                            ):
+                                print(
+                                    "V7 ENTRY ERREICHT:"
+                                )
+                                print(symbol)
+
+                                pending = (
+                                    PENDING_SETUPS[
+                                        symbol
+                                    ].copy()
+                                )
+                                pending["symbol"] = symbol
+
+                                review_order_plan(
+                                    pending,
+                                    qty="0.0001",
+                                )
+
+                                del PENDING_SETUPS[
+                                    symbol
+                                ]
+
+                # Neues V7-Signal auswerten
                 if result is None:
                     print("Signal: None")
                     continue
 
-                if str(
-                    result.get("signal", "")
-                ).startswith("PENDING_"):
+                signal = result.get("signal")
 
+                if str(signal).startswith(
+                    "PENDING_"
+                ):
                     if symbol not in PENDING_SETUPS:
                         PENDING_SETUPS[symbol] = {
                             "created_at": datetime.now(
                                 timezone.utc
                             ).isoformat(),
-                            "signal": result.get("signal"),
-                            "setup": result["indicators"]["setup"],
+                            "signal": signal,
+                            "setup": result[
+                                "indicators"
+                            ]["setup"],
                         }
 
                         print(
-                            "NEUES PENDING-SETUP GESPEICHERT:"
+                            "NEUES PENDING-SETUP "
+                            "GESPEICHERT:"
                         )
-                        print(PENDING_SETUPS[symbol])
+                        print(
+                            PENDING_SETUPS[symbol]
+                        )
 
-                        print("SETUP KEYS:", result.keys())
                 print(
                     "Signal:",
-                    result.get("signal"),
+                    signal,
                 )
 
                 print(
@@ -420,6 +578,7 @@ if __name__ == "__main__":
             time.sleep(POLL_SECONDS)
 
         except KeyboardInterrupt:
+            print("")
             print("Bot beendet.")
             break
 
