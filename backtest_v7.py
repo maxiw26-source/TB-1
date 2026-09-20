@@ -367,7 +367,6 @@ def print_trade_diagnostics(trades):
     )
 
 
-def run_backtest():
 def run_backtest(SYMBOL):
     entry_candles = load_csv(SYMBOL, "1m")
     confirmation_candles = load_csv(SYMBOL, "5m")
