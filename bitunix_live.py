@@ -784,6 +784,80 @@ def preflight_approved_order(
         qty * last_price
     )
 
+    taker_fee_pct = env_decimal(
+        "LIVE_TAKER_FEE_PERCENT",
+        "0.06",
+    )
+    slippage_pct = env_decimal(
+        "LIVE_SLIPPAGE_PERCENT",
+        "0.02",
+    )
+    max_cost_to_risk_ratio = env_decimal(
+        "LIVE_MAX_COST_TO_RISK_RATIO",
+        "0.12",
+    )
+
+    estimated_entry_fee = (
+        notional
+        * taker_fee_pct
+        / Decimal("100")
+    )
+    estimated_exit_fee = (
+        qty
+        * tp2
+        * taker_fee_pct
+        / Decimal("100")
+    )
+    estimated_exit_slippage = (
+        qty
+        * tp2
+        * slippage_pct
+        / Decimal("100")
+    )
+    estimated_costs = (
+        estimated_entry_fee
+        + estimated_exit_fee
+        + estimated_exit_slippage
+    )
+
+    risk_amount = (
+        abs(last_price - stop)
+        * qty
+    )
+    gross_tp2 = (
+        abs(tp2 - last_price)
+        * qty
+    )
+    estimated_tp2_net = (
+        gross_tp2
+        - estimated_costs
+    )
+
+    if risk_amount <= 0:
+        raise LiveExecutionError(
+            "Ungültiges Live-Risiko"
+        )
+
+    cost_to_risk_ratio = (
+        estimated_costs
+        / risk_amount
+    )
+
+    if cost_to_risk_ratio > max_cost_to_risk_ratio:
+        raise LiveExecutionError(
+            "Live-Kosten im Verhältnis "
+            "zum Risiko zu hoch "
+            f"({cost_to_risk_ratio:.3f} > "
+            f"{max_cost_to_risk_ratio})"
+        )
+
+    if estimated_tp2_net <= 0:
+        raise LiveExecutionError(
+            "TP2 wäre nach geschätzten "
+            "Gebühren/Slippage nicht "
+            "profitabel"
+        )
+
     max_notional = env_decimal(
         "LIVE_MAX_NOTIONAL_USDT",
         "10.00",
@@ -886,6 +960,15 @@ def preflight_approved_order(
         ),
         "notional_usdt": str(
             notional
+        ),
+        "estimated_live_costs_usdt": str(
+            estimated_costs
+        ),
+        "estimated_tp2_net_usdt": str(
+            estimated_tp2_net
+        ),
+        "cost_to_risk_ratio": str(
+            cost_to_risk_ratio
         ),
         "entry_deviation_percent": str(
             deviation_pct
@@ -1161,6 +1244,12 @@ def live_execution_status():
             env_decimal(
                 "LIVE_MAX_ENTRY_DEVIATION_PERCENT",
                 "0.20",
+            )
+        ),
+        "max_cost_to_risk_ratio": str(
+            env_decimal(
+                "LIVE_MAX_COST_TO_RISK_RATIO",
+                "0.12",
             )
         ),
         "max_approval_age_seconds": str(
