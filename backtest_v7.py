@@ -1,5 +1,4 @@
-# ============================================================
-# LSOB_V7 – backtest_v7.py
+# =====================================================# LSOB_V7 – backtest_v7.py
 #
 # Saubere Komplettversion
 # - Multi-Timeframe
@@ -11,8 +10,7 @@
 # - TP1 / TP2 / TP3
 # - Break-even nach TP1
 # - Setup- und Trade-Diagnose
-# ============================================================
-
+# =====================================================
 import csv
 import os
 from bisect import bisect_right
@@ -201,10 +199,7 @@ def check_position(position, candle):
             position["tp1_hit"] = True
             position["stop"] = position["entry"]
 
-<<<<<<< HEAD
-=======
 
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
         if (
             not position["tp2_hit"]
             and high >= position["tp2"]
@@ -217,10 +212,6 @@ def check_position(position, candle):
                 "TP2",
             )
             position["tp2_hit"] = True
-<<<<<<< HEAD
-=======
-            position["stop"] = position["tp1"]
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
         if high >= position["tp3"] and position["remaining"] > 0:
             exit_part(position, position["tp3"], position["remaining"], "TP3")
@@ -240,10 +231,7 @@ def check_position(position, candle):
             )
             position["tp1_hit"] = True
             position["stop"] = position["entry"]
-<<<<<<< HEAD
 
-=======
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
         if (
             not position["tp2_hit"]
             and low <= position["tp2"]
@@ -379,17 +367,11 @@ def print_trade_diagnostics(trades):
     )
 
 
-<<<<<<< HEAD
-def run_backtest():
-=======
 def run_backtest(SYMBOL):
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
     entry_candles = load_csv(SYMBOL, "1m")
     confirmation_candles = load_csv(SYMBOL, "5m")
     trend_candles = load_csv(SYMBOL, "15m")
 
-<<<<<<< HEAD
-=======
     cutoff_timestamp = (
     entry_candles[-1]["timestamp"]
     - BACKTEST_DAYS * 24 * 60 * 60 * 1000
@@ -412,7 +394,6 @@ def run_backtest(SYMBOL):
     if candle["timestamp"] >= cutoff_timestamp
 ]
 
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
     confirmation_times = [candle["timestamp"] for candle in confirmation_candles]
     trend_times = [candle["timestamp"] for candle in trend_candles]
 
@@ -517,13 +498,11 @@ def run_backtest(SYMBOL):
         if len(trend_history) < EMA_TREND_PERIOD:
             continue
 
-<<<<<<< HEAD
         result = calculate_signal(
             entry_history,
             confirmation_history,
             trend_history,
         )
-=======
         
 
         if SYMBOL == "ETHUSDT":
@@ -555,7 +534,6 @@ def run_backtest(SYMBOL):
 )
 
         
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
         signal_checks += 1
 
@@ -677,8 +655,6 @@ def run_backtest(SYMBOL):
 
     print_trade_diagnostics(trades)
 
-<<<<<<< HEAD
-=======
     return {
     "symbol": SYMBOL,
     "trades": len(trades),
@@ -691,7 +667,6 @@ def run_backtest(SYMBOL):
     "slippage": sum(trade["slippage"] for trade in trades),
 }
 
->>>>>>> f825d71 (LSOB V7 baseline und neue Strategie Vorbereitung)
 
 if __name__ == "__main__":
     results = []
