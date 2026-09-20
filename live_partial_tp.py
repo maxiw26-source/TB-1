@@ -202,6 +202,34 @@ def move_position_stop_to_break_even(
     )
 
 
+def get_pending_tpsl_orders(
+    symbol=None,
+    position_id=None,
+):
+    params = {
+        "limit": 100,
+    }
+
+    if symbol:
+        params["symbol"] = str(symbol).upper()
+
+    if position_id:
+        params["positionId"] = str(position_id)
+
+    result = private_request(
+        "GET",
+        "/api/v1/futures/tpsl/get_pending_orders",
+        params=params,
+    )
+
+    data = result.get("data") or []
+
+    if isinstance(data, dict):
+        return data.get("orderList", []) or []
+
+    return data
+
+
 def partial_preflight(
     symbol,
     close_percent,
