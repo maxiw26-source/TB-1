@@ -61,3 +61,49 @@ Beim Neustart lädt der Bot automatisch:
 - Setup-IDs gegen Doppelverarbeitung
 
 Dadurch geht der lokale Bot-Zustand bei einem normalen VPS-Neustart nicht verloren.
+
+
+## Guarded Live-Ausführung
+
+Die neue Live-Ausführungslogik liegt in `bitunix_live.py`. Sie ist standardmäßig **ausgeschaltet**.
+
+Wichtige `.env`-Schalter:
+
+```text
+ENABLE_LIVE_EXECUTION=false
+LIVE_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT
+LIVE_MAX_NOTIONAL_USDT=10
+LIVE_MAX_ENTRY_DEVIATION_PERCENT=0.20
+LIVE_MAX_APPROVAL_AGE_SECONDS=120
+BITUNIX_POSITION_MODE=ONE_WAY
+```
+
+Vor jeder möglichen Live-Order werden geprüft:
+
+- ausdrückliche Approval-Freigabe
+- kein Testplan
+- Symbol-Whitelist
+- Bitunix API-Support und Symbolstatus OPEN
+- Mindestmenge und Mengenpräzision
+- maximales Notional
+- maximale Preisabweichung vom geplanten Entry
+- Bestätigung nicht älter als das Zeitlimit
+- keine bestehende Futures-Position
+- keine bestehende offene Futures-Order
+- keine Wiederholung desselben bestätigten Plans
+
+Die Order wird mit einer eindeutigen `clientId` registriert. Falls die Antwort nach dem Senden unklar ist, wird der Versuch als `UNCERTAIN` markiert und **nicht automatisch wiederholt**.
+
+Der Live-Entry verwendet MARKET und hängt einen vollständigen Exchange-seitigen Stop sowie TP2 als MARKET-Trigger an die Entry-Order. Das schützt die Position auch dann, wenn der VPS ausfällt.
+
+### Guardrail-Selbsttest
+
+```bash
+python selftest_live_guardrails.py
+```
+
+Dieser Test verwendet keine echten Orders.
+
+### Noch nicht automatisch aktiv
+
+Die Datei `bitunix_live.py` ist vorbereitet, aber die produktive V7-Schleife führt Live-Orders noch nicht selbst aus. Das bleibt bewusst getrennt, bis der Guardrail-Test und ein API-Preflight auf dem VPS erfolgreich waren.
