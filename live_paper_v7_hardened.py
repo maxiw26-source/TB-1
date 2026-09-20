@@ -1044,6 +1044,33 @@ def status_command():
     )
 
 
+def test_approval_command():
+    plan = {
+        "symbol": "BTCUSDT",
+        "side": "BUY",
+        "qty": "0.0001",
+        "entry": 100.0,
+        "stop": 95.0,
+        "tp1": 105.0,
+        "tp2": 106.0,
+        "risk_distance": 5.0,
+        "test": True,
+    }
+
+    create_approval(plan)
+
+    if telegram_configured():
+        notify_plan(plan)
+
+    print(
+        "Test-Bestätigung erstellt."
+    )
+    print(
+        "Antworte in Telegram mit "
+        "/approve oder /reject."
+    )
+
+
 def main():
     command = (
         sys.argv[1].lower()
@@ -1067,9 +1094,14 @@ def main():
         status_command()
         return
 
+    if command == "test-approval":
+        test_approval_command()
+        return
+
     print(
         "Verfügbar: "
-        "run, approve, reject, status"
+        "run, approve, reject, status, "
+        "test-approval"
     )
 
 
