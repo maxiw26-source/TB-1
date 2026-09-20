@@ -840,21 +840,38 @@ def run_loop():
             ):
                 plan = approval["plan"]
 
-                if (
-                    plan["symbol"]
-                    not in OPEN_POSITIONS
-                ):
-                    open_position_from_plan(
-                        plan
+                if plan.get("test"):
+                    log_event(
+                        "TEST_APPROVAL_CONSUMED",
+                        symbol=plan.get(
+                            "symbol",
+                            "",
+                        ),
+                        details=plan,
                     )
+                    clear_approval()
+                    approval = None
 
-                clear_approval()
-                approval = None
+                    print(
+                        "Test-Bestätigung "
+                        "erfolgreich verarbeitet."
+                    )
+                else:
+                    if (
+                        plan["symbol"]
+                        not in OPEN_POSITIONS
+                    ):
+                        open_position_from_plan(
+                            plan
+                        )
 
-                print(
-                    "Bestätigter Plan "
-                    "wird jetzt überwacht."
-                )
+                    clear_approval()
+                    approval = None
+
+                    print(
+                        "Bestätigter Plan "
+                        "wird jetzt überwacht."
+                    )
 
             if (
                 approval
