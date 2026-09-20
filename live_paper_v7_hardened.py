@@ -8,6 +8,7 @@ import requests
 import config
 from bot_runtime import (
     approve_order,
+    clear_approval,
     create_approval,
     load_runtime_state,
     log_event,
@@ -745,6 +746,41 @@ def run_loop():
                 and approval.get(
                     "status"
                 )
+                == "APPROVED"
+            ):
+                plan = approval["plan"]
+
+                if (
+                    plan["symbol"]
+                    not in OPEN_POSITIONS
+                ):
+                    open_position_from_plan(
+                        plan
+                    )
+
+                clear_approval()
+                approval = None
+
+                print(
+                    "Bestätigter Plan "
+                    "wird jetzt überwacht."
+                )
+
+            if (
+                approval
+                and approval.get(
+                    "status"
+                )
+                == "REJECTED"
+            ):
+                clear_approval()
+                approval = None
+
+            if (
+                approval
+                and approval.get(
+                    "status"
+                )
                 == "WAITING"
             ):
                 print(
@@ -859,16 +895,21 @@ def approve_command():
 
     plan = approval["plan"]
 
-    open_position_from_plan(
-        plan
-    )
-
     print(
-        "Plan bestätigt."
+        "Plan bestätigt:"
     )
     print(
-        "Die Position wird ab jetzt "
-        "im Bot überwacht."
+        json.dumps(
+            plan,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    print(
+        "Der laufende Bot übernimmt "
+        "die interne Überwachung "
+        "innerhalb des nächsten "
+        "Prüfintervalls."
     )
     print(
         "Es wurde keine autonome "
