@@ -9,6 +9,7 @@ from bot_runtime import (
     read_approval,
     reject_order,
 )
+from bitunix_live import live_execution_status
 
 
 STATE_FILE = Path("telegram_state.json")
@@ -126,11 +127,26 @@ def notify_plan(plan):
 
 def _status_text():
     approval = read_approval()
+    live_status = (
+        live_execution_status()
+    )
+
+    live_label = "AUS"
+
+    if live_status.get("enabled"):
+        live_label = (
+            "ARMED"
+            if live_status.get(
+                "armed_ack"
+            )
+            else "EIN, ABER NICHT ARMED"
+        )
 
     if not approval:
         return (
-            "LSOB V7: Keine wartende "
-            "Bestätigung."
+            "LSOB V7 Status\n"
+            "Keine wartende Bestätigung.\n"
+            f"Live-Ausführung: {live_label}"
         )
 
     status = approval.get(
@@ -151,7 +167,8 @@ def _status_text():
     return (
         "LSOB V7 Status\n"
         f"Approval: {status}\n"
-        f"Symbol: {symbol}"
+        f"Symbol: {symbol}\n"
+        f"Live-Ausführung: {live_label}"
     )
 
 
