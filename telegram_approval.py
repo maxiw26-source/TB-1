@@ -103,15 +103,44 @@ def send_message(text):
 
 
 def format_plan(plan):
+    live_status = (
+        live_execution_status()
+    )
+
+    live_armed = bool(
+        live_status.get("enabled")
+        and live_status.get(
+            "armed_ack"
+        )
+    )
+
+    mode_text = (
+        "ECHTGELD ARMED"
+        if live_armed
+        else "PAPER/INTERN"
+    )
+
+    extra = ""
+
+    if live_armed:
+        extra = (
+            "\nLive-Schutz: voller "
+            "Exchange-SL + voller TP2. "
+            "TP1-Teilverkauf ist im "
+            "Live-Profil noch nicht aktiv."
+        )
+
     return (
         "LSOB V7 – Bestätigung erforderlich\n"
+        f"Modus: {mode_text}\n"
         f"Symbol: {plan['symbol']}\n"
         f"Seite: {plan['side']}\n"
         f"Menge: {plan['qty']}\n"
         f"Entry: {plan['entry']}\n"
         f"Stop: {plan['stop']}\n"
         f"TP1: {plan['tp1']}\n"
-        f"TP2: {plan['tp2']}\n\n"
+        f"TP2: {plan['tp2']}\n"
+        f"{extra}\n\n"
         "Antworten mit:\n"
         "/approve\n"
         "/reject\n"
