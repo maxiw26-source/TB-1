@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 import os
@@ -259,7 +260,30 @@ def save(symbol, interval, candles):
     )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Bitunix historische Kerzendaten laden"
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=DAYS_TO_DOWNLOAD,
+        help="Anzahl Tage historischer Daten",
+    )
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=SYMBOLS,
+        help="Symbole, z.B. BTCUSDT ETHUSDT SOLUSDT",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    days_to_download = max(1, int(args.days))
+    symbols = [symbol.upper() for symbol in args.symbols]
+
     end_datetime = datetime.now(
         timezone.utc
     ).replace(
@@ -269,7 +293,7 @@ def main():
 
     target_start_datetime = (
         end_datetime
-        - timedelta(days=DAYS_TO_DOWNLOAD)
+        - timedelta(days=days_to_download)
     )
 
     target_start_time = to_ms(
@@ -282,11 +306,11 @@ def main():
 
     print(
         "Ziel:",
-        DAYS_TO_DOWNLOAD,
+        days_to_download,
         "Tage historische Daten",
     )
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         for interval in INTERVALS:
 
             existing = load_existing(
