@@ -1,0 +1,14 @@
+[Unit]
+Description=LSOB V8 BTC Balanced Paper Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/live_paper_v8_btc.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
