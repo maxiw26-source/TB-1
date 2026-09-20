@@ -1,1 +1,8 @@
 historical_data/
+.env
+runtime_state.json
+runtime_state.tmp
+pending_approval.json
+trade_events.csv
+__pycache__/
+*.pyc
