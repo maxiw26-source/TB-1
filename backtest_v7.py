@@ -212,7 +212,6 @@ def check_position(position, candle):
                 "TP2",
             )
             position["tp2_hit"] = True
-            position["stop"] = position["tp1"]
 
         if high >= position["tp3"] and position["remaining"] > 0:
             exit_part(position, position["tp3"], position["remaining"], "TP3")
