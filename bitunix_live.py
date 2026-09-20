@@ -4,7 +4,12 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import (
+    Decimal,
+    InvalidOperation,
+    ROUND_DOWN,
+    ROUND_UP,
+)
 from pathlib import Path
 
 import requests
@@ -319,6 +324,30 @@ def get_account_balance():
         "GET",
         "/api/v1/cp/asset/query",
     ).get("data") or {}
+
+
+def _format_decimal(
+    value,
+    precision,
+    rounding,
+):
+    decimal_value = Decimal(
+        str(value)
+    )
+
+    quantum = Decimal("1").scaleb(
+        -int(precision)
+    )
+
+    rounded = decimal_value.quantize(
+        quantum,
+        rounding=rounding,
+    )
+
+    return format(
+        rounded,
+        "f",
+    )
 
 
 def _decimal_places(value):
@@ -798,6 +827,44 @@ def preflight_approved_order(
         client_id
     )
 
+    quote_precision = int(
+        rules.get(
+            "quotePrecision",
+            0,
+        )
+    )
+
+    if side == "BUY":
+        formatted_stop = (
+            _format_decimal(
+                stop,
+                quote_precision,
+                ROUND_DOWN,
+            )
+        )
+        formatted_tp2 = (
+            _format_decimal(
+                tp2,
+                quote_precision,
+                ROUND_DOWN,
+            )
+        )
+    else:
+        formatted_stop = (
+            _format_decimal(
+                stop,
+                quote_precision,
+                ROUND_UP,
+            )
+        )
+        formatted_tp2 = (
+            _format_decimal(
+                tp2,
+                quote_precision,
+                ROUND_UP,
+            )
+        )
+
     return {
         "symbol": symbol,
         "side": side,
@@ -811,6 +878,12 @@ def preflight_approved_order(
         "stop": str(stop),
         "tp1": str(tp1),
         "tp2": str(tp2),
+        "formatted_stop": (
+            formatted_stop
+        ),
+        "formatted_tp2": (
+            formatted_tp2
+        ),
         "notional_usdt": str(
             notional
         ),
@@ -902,10 +975,14 @@ def place_approved_entry(
         "orderType": "MARKET",
         "reduceOnly": False,
         "clientId": client_id,
-        "tpPrice": str(plan["tp2"]),
+        "tpPrice": preflight[
+            "formatted_tp2"
+        ],
         "tpStopType": "LAST_PRICE",
         "tpOrderType": "MARKET",
-        "slPrice": str(plan["stop"]),
+        "slPrice": preflight[
+            "formatted_stop"
+        ],
         "slStopType": "LAST_PRICE",
         "slOrderType": "MARKET",
     }
