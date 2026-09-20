@@ -258,6 +258,35 @@ def get_pending_positions(
     return result.get("data", []) or []
 
 
+def get_order_detail(
+    order_id=None,
+    client_id=None,
+):
+    if not order_id and not client_id:
+        raise LiveExecutionError(
+            "order_id oder client_id fehlt"
+        )
+
+    params = {}
+
+    if order_id:
+        params["orderId"] = order_id
+
+    if client_id:
+        params["clientId"] = client_id
+
+    result = private_request(
+        "GET",
+        (
+            "/api/v1/futures/trade/"
+            "get_order_detail"
+        ),
+        params=params,
+    )
+
+    return result.get("data") or {}
+
+
 def get_pending_orders(
     symbol=None,
 ):
@@ -800,6 +829,48 @@ def preflight_approved_order(
     }
 
 
+def wait_for_order_result(
+    order_id=None,
+    client_id=None,
+    timeout_seconds=8,
+):
+    deadline = (
+        time.time()
+        + float(timeout_seconds)
+    )
+
+    last_detail = None
+
+    while time.time() < deadline:
+        try:
+            detail = get_order_detail(
+                order_id=order_id,
+                client_id=client_id,
+            )
+        except Exception:
+            time.sleep(0.5)
+            continue
+
+        last_detail = detail
+
+        status = str(
+            detail.get(
+                "status",
+                "",
+            )
+        ).upper()
+
+        if status in {
+            "FILLED",
+            "CANCELED",
+        }:
+            return detail
+
+        time.sleep(0.5)
+
+    return last_detail
+
+
 def place_approved_entry(
     approval,
 ):
@@ -867,17 +938,114 @@ def place_approved_entry(
         )
         raise
 
+    response_data = (
+        response.get("data")
+        or {}
+    )
+
+    order_id = response_data.get(
+        "orderId"
+    )
+
+    detail = wait_for_order_result(
+        order_id=order_id,
+        client_id=client_id,
+        timeout_seconds=8,
+    )
+
+    status = str(
+        (detail or {}).get(
+            "status",
+            "",
+        )
+    ).upper()
+
+    if status != "FILLED":
+        _register_attempt(
+            client_id,
+            "UNCERTAIN",
+            payload=payload,
+            response={
+                "place_order": response,
+                "order_detail": detail,
+            },
+            error=(
+                "Market-Order konnte nicht "
+                "als FILLED bestätigt werden"
+            ),
+        )
+
+        raise LiveExecutionError(
+            "Order wurde gesendet, aber "
+            "nicht sicher als FILLED "
+            "bestätigt. Keine automatische "
+            "Wiederholung."
+        )
+
+    positions = get_pending_positions(
+        preflight["symbol"]
+    )
+
+    matching_positions = [
+        item
+        for item in positions
+        if Decimal(
+            str(
+                item.get(
+                    "qty",
+                    "0",
+                )
+            )
+        ) > 0
+    ]
+
+    if not matching_positions:
+        _register_attempt(
+            client_id,
+            "UNCERTAIN",
+            payload=payload,
+            response={
+                "place_order": response,
+                "order_detail": detail,
+                "positions": positions,
+            },
+            error=(
+                "Keine offene Position "
+                "nach FILLED gefunden"
+            ),
+        )
+
+        raise LiveExecutionError(
+            "Order ist FILLED, aber die "
+            "Position konnte nicht sicher "
+            "bestätigt werden."
+        )
+
+    confirmed_position = (
+        matching_positions[0]
+    )
+
     _register_attempt(
         client_id,
-        "SENT",
+        "CONFIRMED",
         payload=payload,
-        response=response,
+        response={
+            "place_order": response,
+            "order_detail": detail,
+            "position": (
+                confirmed_position
+            ),
+        },
     )
 
     return {
         "preflight": preflight,
         "payload": payload,
         "response": response,
+        "order_detail": detail,
+        "position": (
+            confirmed_position
+        ),
     }
 
 
