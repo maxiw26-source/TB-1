@@ -71,11 +71,19 @@ Wichtige `.env`-Schalter:
 
 ```text
 ENABLE_LIVE_EXECUTION=false
+LIVE_EXECUTION_ACK=
 LIVE_ALLOWED_SYMBOLS=BTCUSDT,ETHUSDT
 LIVE_MAX_NOTIONAL_USDT=10
 LIVE_MAX_ENTRY_DEVIATION_PERCENT=0.20
 LIVE_MAX_APPROVAL_AGE_SECONDS=120
 BITUNIX_POSITION_MODE=ONE_WAY
+```
+
+Für eine echte Order müssen später beide Schalter bewusst gesetzt werden:
+
+```text
+ENABLE_LIVE_EXECUTION=true
+LIVE_EXECUTION_ACK=I_UNDERSTAND_REAL_ORDERS
 ```
 
 Vor jeder möglichen Live-Order werden geprüft:
