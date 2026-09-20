@@ -14,7 +14,7 @@ def expect_error(fn, text):
 
 
 def main():
-    print("1/5 BTC 70/30 Mengenaufteilung")
+    print("1/7 BTC 70/30 Mengenaufteilung")
     result = partial.calculate_partial_quantities(
         "0.0010",
         70,
@@ -24,7 +24,7 @@ def main():
     assert result["close_qty"] == "0.0007"
     assert result["remaining_qty"] == "0.0003"
 
-    print("2/5 Zu kleine Restmenge blockieren")
+    print("2/7 Zu kleine Restmenge blockieren")
     expect_error(
         lambda: partial.calculate_partial_quantities(
             "0.0001",
@@ -35,7 +35,7 @@ def main():
         "TP1-Teilmenge",
     )
 
-    print("3/5 Reduce-only Payload")
+    print("3/7 Reduce-only Payload")
     payload = partial.build_reduce_only_market_payload(
         "BTCUSDT",
         "BUY",
@@ -46,7 +46,7 @@ def main():
     assert payload["reduceOnly"] is True
     assert payload["orderType"] == "MARKET"
 
-    print("4/5 Hedge Close Payload")
+    print("4/7 Hedge Close Payload")
     hedge_payload = partial.build_reduce_only_market_payload(
         "BTCUSDT",
         "SHORT",
@@ -56,7 +56,7 @@ def main():
     assert hedge_payload["side"] == "BUY"
     assert hedge_payload["tradeSide"] == "CLOSE"
 
-    print("5/5 API Preflight gemockt")
+    print("5/7 API Preflight gemockt")
     with patch.object(
         partial,
         "get_trading_pair",
@@ -83,6 +83,30 @@ def main():
 
     assert preflight["quantities"]["close_qty"] == "0.0007"
     assert preflight["quantities"]["remaining_qty"] == "0.0003"
+
+    print("6/7 Automatischer Min-Qty-Fallback")
+    fallback = partial.choose_live_exit_profile(
+        "0.003",
+        3,
+        "0.003",
+        close_percent=70,
+        partials_enabled=True,
+    )
+    assert fallback["profile"] == "FULL_TP2_MIN_QTY_FALLBACK"
+    assert fallback["partial_compatible"] is False
+
+    print("7/7 Teilprofit-kompatibles Profil")
+    ready = partial.choose_live_exit_profile(
+        "0.010",
+        3,
+        "0.003",
+        close_percent=70,
+        partials_enabled=True,
+    )
+    assert ready["profile"] == "PARTIAL_70_30_READY"
+    assert ready["partial_compatible"] is True
+    assert ready["quantities"]["close_qty"] == "0.007"
+    assert ready["quantities"]["remaining_qty"] == "0.003"
 
     print("")
     print("LIVE PARTIAL TP SELFTEST ERFOLGREICH")
