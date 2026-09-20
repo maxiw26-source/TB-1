@@ -1,0 +1,11 @@
+[Unit]
+Description=Run LSOB V7 Watchdog every 2 minutes
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=2min
+Persistent=true
+Unit=lsob-watchdog.service
+
+[Install]
+WantedBy=timers.target
