@@ -302,6 +302,10 @@ def open_position_from_plan(plan):
         "tp2": float(plan["tp2"]),
         "tp1_hit": False,
         "status": "OPEN",
+        "remaining_qty": float(plan["qty"]),
+        "tp1_close_percent": 70.0,
+        "tp2_close_percent": 30.0,
+        "break_even_active": False,
     }
 
     return OPEN_POSITIONS[symbol]
@@ -323,7 +327,7 @@ def check_position_levels(position, candle):
         if high >= tp2:
             return "TP2"
 
-        if high >= tp1:
+        if not position.get("tp1_hit", False) and high >= tp1:
             return "TP1"
 
     if side == "SELL":
@@ -333,7 +337,7 @@ def check_position_levels(position, candle):
         if low <= tp2:
             return "TP2"
 
-        if low <= tp1:
+        if not position.get("tp1_hit", False) and low <= tp1:
             return "TP1"
 
     return None
@@ -344,14 +348,48 @@ def update_position_state(position, event):
 
     if event == "TP1":
         position["tp1_hit"] = True
+
+        close_percent = float(
+            position.get(
+                "tp1_close_percent",
+                70.0,
+            )
+        )
+
+        remaining_qty = float(
+            position.get(
+                "remaining_qty",
+                position["qty"],
+            )
+        )
+
+        closed_qty = (
+            remaining_qty
+            * close_percent
+            / 100.0
+        )
+
+        position["remaining_qty"] = max(
+            0.0,
+            remaining_qty - closed_qty,
+        )
+
+        position["stop"] = float(
+            position["entry"]
+        )
+
+        position["break_even_active"] = True
         position["status"] = "OPEN"
+
         return position
 
     if event == "TP2":
+        position["remaining_qty"] = 0.0
         position["status"] = "CLOSED_TP2"
         return position
 
     if event == "STOP":
+        position["remaining_qty"] = 0.0
         position["status"] = "CLOSED_STOP"
         return position
 
