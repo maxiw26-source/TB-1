@@ -27,7 +27,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py selftest_v8.py bot_runtime.py telegram_approval.py bitunix_live.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_strategy_expansion.py
+          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py backtest_btc_v8_multiblock.py selftest_v8.py bot_runtime.py telegram_approval.py bitunix_live.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_strategy_expansion.py
 
       - name: Core selftest
         run: python selftest_v7.py
