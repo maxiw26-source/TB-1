@@ -12,6 +12,15 @@ import requests
 
 import config
 from strategy_v7 import calculate_signal
+from bot_runtime import (
+    approve_order,
+    create_approval,
+    load_runtime_state,
+    log_event,
+    read_approval,
+    reject_order,
+    save_runtime_state,
+)
 
 
 BASE_URL = "https://fapi.bitunix.com"
@@ -1479,6 +1488,72 @@ def main():
             "run, approve, reject, "
             "status, positions"
         )
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+def main():
+    load_current_state()
+
+    command = (
+        sys.argv[1].lower()
+        if len(sys.argv) > 1
+        else "run"
+    )
+
+    if command == "run":
+        run_loop()
+        return
+
+    if command == "approve":
+        approval = approve_order()
+        if approval is None:
+            print("Keine wartende Order vorhanden.")
+            return
+
+        print("Orderplan bestätigt:")
+        print(
+            json.dumps(
+                approval["plan"],
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        print("")
+        print(
+            "Die Echtgeld-Ausführung bleibt getrennt "
+            "und wird nicht autonom ausgelöst."
+        )
+        return
+
+    if command == "reject":
+        approval = reject_order()
+        if approval is None:
+            print("Keine wartende Order vorhanden.")
+            return
+
+        print("Orderplan abgelehnt.")
+        return
+
+    if command == "status":
+        print(
+            json.dumps(
+                {
+                    "pending_setups": PENDING_SETUPS,
+                    "open_positions": OPEN_POSITIONS,
+                    "approval": read_approval(),
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    print("Unbekannter Befehl:", command)
+    print("Verfügbar: run, approve, reject, status")
 
 
 if __name__ == "__main__":
