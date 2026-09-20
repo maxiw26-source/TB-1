@@ -23,6 +23,8 @@ from bitunix_live import (
     live_execution_status,
     place_approved_entry,
 )
+from live_partial_tp import choose_live_exit_profile
+
 from telegram_approval import (
     notify_plan,
     process_updates,
@@ -446,6 +448,40 @@ def open_position_from_plan(
         or {}
     )
 
+    live_profile = {
+        "profile": "PAPER_V7_PARTIAL",
+        "partial_compatible": True,
+        "reason": None,
+        "quantities": None,
+    }
+
+    if exchange_live:
+        preflight = (
+            live_result.get("preflight")
+            or {}
+        )
+        rules = (
+            preflight.get("rules")
+            or {}
+        )
+
+        live_profile = choose_live_exit_profile(
+            plan["qty"],
+            int(rules.get("basePrecision", 0)),
+            rules.get("minTradeVolume", "0"),
+            close_percent=float(
+                getattr(
+                    config,
+                    "TP1_CLOSE_PERCENT",
+                    70.0,
+                )
+            ),
+            partials_enabled=env_bool(
+                "ENABLE_LIVE_PARTIALS",
+                False,
+            ),
+        )
+
     OPEN_POSITIONS[symbol] = {
         "side": plan["side"],
         "qty": plan["qty"],
@@ -476,9 +512,16 @@ def open_position_from_plan(
         "status": "OPEN",
         "exchange_live": exchange_live,
         "live_exit_profile": (
-            "FULL_TP2_PROTECTED"
-            if exchange_live
-            else "PAPER_V7_PARTIAL"
+            live_profile["profile"]
+        ),
+        "partial_compatible": (
+            live_profile["partial_compatible"]
+        ),
+        "partial_profile_reason": (
+            live_profile["reason"]
+        ),
+        "partial_quantities": (
+            live_profile["quantities"]
         ),
         "exchange_order_id": (
             exchange_order.get(
@@ -991,12 +1034,36 @@ def run_loop():
 
                             if telegram_configured():
                                 try:
+                                    tracked = OPEN_POSITIONS.get(
+                                        plan["symbol"],
+                                        {},
+                                    )
+                                    profile = tracked.get(
+                                        "live_exit_profile",
+                                        "UNKNOWN",
+                                    )
+                                    reason = tracked.get(
+                                        "partial_profile_reason"
+                                    )
+
+                                    extra = (
+                                        ""
+                                        if not reason
+                                        else (
+                                            "\nExit-Profil: "
+                                            + profile
+                                            + "\nGrund: "
+                                            + str(reason)
+                                        )
+                                    )
+
                                     send_message(
                                         "LSOB V7 Live-Entry "
                                         "ausgeführt und "
                                         "bestätigt. "
                                         "Exchange-SL und TP2 "
                                         "sind gesetzt."
+                                        + extra
                                     )
                                 except Exception:
                                     pass

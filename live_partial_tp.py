@@ -71,6 +71,44 @@ def calculate_partial_quantities(
     }
 
 
+def choose_live_exit_profile(
+    total_qty,
+    base_precision,
+    min_trade_volume,
+    close_percent=70,
+    partials_enabled=False,
+):
+    if not partials_enabled:
+        return {
+            "profile": "FULL_TP2_PARTIALS_DISABLED",
+            "partial_compatible": False,
+            "reason": "Live-Teilprofite sind nicht aktiviert",
+            "quantities": None,
+        }
+
+    try:
+        quantities = calculate_partial_quantities(
+            total_qty,
+            close_percent,
+            base_precision,
+            min_trade_volume,
+        )
+    except LiveExecutionError as exc:
+        return {
+            "profile": "FULL_TP2_MIN_QTY_FALLBACK",
+            "partial_compatible": False,
+            "reason": str(exc),
+            "quantities": None,
+        }
+
+    return {
+        "profile": "PARTIAL_70_30_READY",
+        "partial_compatible": True,
+        "reason": None,
+        "quantities": quantities,
+    }
+
+
 def build_reduce_only_market_payload(
     symbol,
     position_side,
