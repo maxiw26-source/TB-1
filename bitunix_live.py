@@ -552,6 +552,15 @@ def preflight_approved_order(
             "nicht aktiviert"
         )
 
+    if os.getenv(
+        "LIVE_EXECUTION_ACK",
+        "",
+    ).strip() != "I_UNDERSTAND_REAL_ORDERS":
+        raise LiveExecutionError(
+            "LIVE_EXECUTION_ACK fehlt "
+            "oder ist falsch"
+        )
+
     if (
         not approval
         or approval.get("status")
@@ -1054,6 +1063,13 @@ def live_execution_status():
         "enabled": env_bool(
             "ENABLE_LIVE_EXECUTION",
             False,
+        ),
+        "armed_ack": (
+            os.getenv(
+                "LIVE_EXECUTION_ACK",
+                "",
+            ).strip()
+            == "I_UNDERSTAND_REAL_ORDERS"
         ),
         "allowed_symbols": sorted(
             allowed_symbols()
