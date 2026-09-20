@@ -104,6 +104,9 @@ def main():
             os.environ[
                 "ENABLE_LIVE_EXECUTION"
             ] = "true"
+            os.environ[
+                "LIVE_EXECUTION_ACK"
+            ] = "I_UNDERSTAND_REAL_ORDERS"
 
             expect_error(
                 lambda: (
