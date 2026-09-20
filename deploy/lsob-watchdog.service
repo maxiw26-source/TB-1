@@ -1,0 +1,9 @@
+[Unit]
+Description=LSOB V7 Watchdog Check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python /root/TB-1/bot_watchdog.py
