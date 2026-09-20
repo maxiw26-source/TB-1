@@ -6,3 +6,4 @@ pending_approval.json
 trade_events.csv
 __pycache__/
 *.pyc
+telegram_state.json
