@@ -17,6 +17,11 @@ from bot_runtime import (
     save_runtime_state,
 )
 from strategy_v7 import calculate_signal
+from telegram_approval import (
+    notify_plan,
+    process_updates,
+    telegram_configured,
+)
 
 
 BASE_URL = "https://fapi.bitunix.com"
@@ -37,6 +42,47 @@ PENDING_SETUPS = {}
 LAST_PROCESSED_CANDLE = {}
 OPEN_POSITIONS = {}
 LAST_SETUP_ID = {}
+
+
+def load_env_file(path=".env"):
+    if not os.path.exists(path):
+        return
+
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+
+            if (
+                not line
+                or line.startswith("#")
+                or "=" not in line
+            ):
+                continue
+
+            key, value = line.split(
+                "=",
+                1,
+            )
+
+            key = key.strip()
+            value = (
+                value.strip()
+                .strip('"')
+                .strip("'")
+            )
+
+            if (
+                key
+                and key not in os.environ
+            ):
+                os.environ[key] = value
+
+
+load_env_file()
 
 
 def save_state():
@@ -706,6 +752,23 @@ def process_pending_setup(
 
     create_approval(plan)
 
+    if telegram_configured():
+        try:
+            notify_plan(plan)
+            log_event(
+                "TELEGRAM_PLAN_SENT",
+                symbol=symbol,
+                details=plan,
+            )
+        except Exception as exc:
+            log_event(
+                "TELEGRAM_NOTIFY_ERROR",
+                symbol=symbol,
+                details={
+                    "error": str(exc),
+                },
+            )
+
     print("")
     print(
         "ENTRY ERREICHT – "
@@ -736,9 +799,36 @@ def run_loop():
         "Alle echten Aktionen "
         "bleiben bestätigungspflichtig."
     )
+    print(
+        "Telegram:",
+        (
+            "aktiv"
+            if telegram_configured()
+            else "nicht eingerichtet"
+        ),
+    )
 
     while True:
         try:
+            if telegram_configured():
+                try:
+                    actions = process_updates()
+
+                    for action in actions:
+                        log_event(
+                            "TELEGRAM_ACTION",
+                            details={
+                                "action": action,
+                            },
+                        )
+                except Exception as exc:
+                    log_event(
+                        "TELEGRAM_POLL_ERROR",
+                        details={
+                            "error": str(exc),
+                        },
+                    )
+
             approval = read_approval()
 
             if (
