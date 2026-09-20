@@ -9,3 +9,7 @@ __pycache__/
 telegram_state.json
 live_execution_state.json
 live_execution_state.tmp
+
+v8_paper_state.json
+v8_paper_state.tmp
+v8_paper_events.jsonl
