@@ -498,40 +498,27 @@ def run_backtest(SYMBOL):
         if len(trend_history) < EMA_TREND_PERIOD:
             continue
 
+        if SYMBOL == "ETHUSDT":
+            swing_lookback = 7
+            sweep_to_bos_candles = 12
+            bos_to_fvg_candles = 4
+            min_fvg_atr_ratio = 0.05
+        else:
+            # BTC and SOL use the baseline V7 parameters.
+            swing_lookback = 10
+            sweep_to_bos_candles = 8
+            bos_to_fvg_candles = 4
+            min_fvg_atr_ratio = 0.10
+
         result = calculate_signal(
             entry_history,
             confirmation_history,
             trend_history,
+            swing_lookback,
+            sweep_to_bos_candles,
+            bos_to_fvg_candles,
+            min_fvg_atr_ratio,
         )
-        
-
-        if SYMBOL == "ETHUSDT":
-                    swing_lookback = 7
-                    sweep_to_bos_candles = 12
-                    bos_to_fvg_candles = 4
-                    min_fvg_atr_ratio = 0.05
-        else:
-                    swing_lookback = 10
-                    sweep_to_bos_candles = 8
-                    bos_to_fvg_candles = 4
-                    min_fvg_atr_ratio = 0.10
-
-        
-
-        if SYMBOL == "ETHUSDT":
-                    swing_lookback = 7
-        else:
-                    swing_lookback = 10
-
-        result = calculate_signal(
-    entry_history,
-    confirmation_history,
-    trend_history,
-    swing_lookback,
-    sweep_to_bos_candles,
-    bos_to_fvg_candles,
-    min_fvg_atr_ratio,
-)
 
         
 
