@@ -228,3 +228,8 @@ def reject_order():
     )
 
     return approval
+
+
+def clear_approval():
+    if APPROVAL_FILE.exists():
+        APPROVAL_FILE.unlink()
