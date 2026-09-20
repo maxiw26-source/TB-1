@@ -4,7 +4,6 @@ from pathlib import Path
 
 from bitunix_live import (
     LiveExecutionError,
-    get_account_balance,
     get_pending_orders,
     get_pending_positions,
     get_ticker,
@@ -113,14 +112,9 @@ def main():
         get_pending_orders()
     )
 
-    try:
-        report["account"] = (
-            get_account_balance()
-        )
-    except Exception as exc:
-        report["account"] = {
-            "warning": str(exc),
-        }
+    report["account_balance_check"] = (
+        "not_queried"
+    )
 
     print(
         json.dumps(
