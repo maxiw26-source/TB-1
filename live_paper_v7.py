@@ -1,15 +1,16 @@
+import csv
+import hashlib
+import json
+import os
+import sys
 import time
+import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
 import config
-
-import os
-
-import hashlib
-import uuid
-
 from strategy_v7 import calculate_signal
 
 
@@ -20,55 +21,242 @@ SYMBOLS = [
     "ETHUSDT",
 ]
 
-LIVE_TRADING = False
+POLL_SECONDS = 30
 
-BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
-BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
+STATE_FILE = Path("runtime_state.json")
+EVENT_LOG_FILE = Path("trade_events.csv")
+APPROVAL_FILE = Path("pending_approval.json")
 
-LIVE_MAX_BALANCE_USDT = 10.0
-LIVE_RISK_PER_TRADE_PERCENT = 0.25
-LIVE_LEVERAGE = 2
-LIVE_MAX_DAILY_LOSS_USDT = 0.50
-LIVE_MAX_OPEN_POSITIONS = 1
-
-LIVE_TEST_SYMBOL = "BTCUSDT"
-LIVE_TEST_QTY = "0.0001"
-LIVE_TEST_MAX_ORDERS = 1
-LIVE_TEST_ORDER_COUNT = 0
+LIVE_QTY_BY_SYMBOL = {
+    "BTCUSDT": "0.0001",
+    "ETHUSDT": "0.003",
+}
 
 PENDING_SETUPS = {}
 LAST_PROCESSED_CANDLE = {}
 OPEN_POSITIONS = {}
-FORCE_TEST_SETUP = False
-FORCE_TEST_POSITION = False
+LAST_SETUP_ID = {}
 
-POLL_SECONDS = 30
 
-START_BALANCE = float(
-    getattr(config, "START_BALANCE", 10000.0)
-)
+def load_env_file(path=".env"):
+    env_path = Path(path)
 
-def create_signature(api_key, secret_key, timestamp, nonce, body=""):
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(
+        encoding="utf-8"
+    ).splitlines():
+        line = raw_line.strip()
+
+        if (
+            not line
+            or line.startswith("#")
+            or "=" not in line
+        ):
+            continue
+
+        key, value = line.split("=", 1)
+
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file()
+
+BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
+BITUNIX_SECRET_KEY = os.getenv("BITUNIX_SECRET_KEY")
+
+LIVE_TRADING = os.getenv(
+    "LIVE_TRADING",
+    "false",
+).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "ja",
+}
+
+
+def utc_now_iso():
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
+
+
+def log_event(
+    event,
+    symbol="",
+    details=None,
+):
+    row = {
+        "timestamp": utc_now_iso(),
+        "event": event,
+        "symbol": symbol,
+        "details": json.dumps(
+            details or {},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
+    }
+
+    write_header = not EVENT_LOG_FILE.exists()
+
+    with EVENT_LOG_FILE.open(
+        "a",
+        newline="",
+        encoding="utf-8",
+    ) as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "timestamp",
+                "event",
+                "symbol",
+                "details",
+            ],
+        )
+
+        if write_header:
+            writer.writeheader()
+
+        writer.writerow(row)
+
+
+def save_state():
+    payload = {
+        "pending_setups": PENDING_SETUPS,
+        "last_processed_candle": (
+            LAST_PROCESSED_CANDLE
+        ),
+        "open_positions": OPEN_POSITIONS,
+        "last_setup_id": LAST_SETUP_ID,
+        "saved_at": utc_now_iso(),
+    }
+
+    temp_path = STATE_FILE.with_suffix(
+        ".tmp"
+    )
+
+    temp_path.write_text(
+        json.dumps(
+            payload,
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    temp_path.replace(STATE_FILE)
+
+
+def load_state():
+    if not STATE_FILE.exists():
+        return
+
+    try:
+        payload = json.loads(
+            STATE_FILE.read_text(
+                encoding="utf-8"
+            )
+        )
+    except (
+        OSError,
+        json.JSONDecodeError,
+    ) as exc:
+        log_event(
+            "STATE_LOAD_ERROR",
+            details={
+                "error": str(exc),
+            },
+        )
+        return
+
+    PENDING_SETUPS.update(
+        payload.get(
+            "pending_setups",
+            {},
+        )
+    )
+
+    LAST_PROCESSED_CANDLE.update(
+        payload.get(
+            "last_processed_candle",
+            {},
+        )
+    )
+
+    OPEN_POSITIONS.update(
+        payload.get(
+            "open_positions",
+            {},
+        )
+    )
+
+    LAST_SETUP_ID.update(
+        payload.get(
+            "last_setup_id",
+            {},
+        )
+    )
+
+
+def canonical_query(params):
+    if not params:
+        return ""
+
+    return "".join(
+        f"{key}{params[key]}"
+        for key in sorted(params)
+        if params[key] is not None
+    )
+
+
+def create_signature(
+    api_key,
+    secret_key,
+    timestamp,
+    nonce,
+    query_params="",
+    body="",
+):
+    if not api_key or not secret_key:
+        raise RuntimeError(
+            "Bitunix API-Key/Secret fehlen"
+        )
+
+    digest_input = (
+        nonce
+        + timestamp
+        + api_key
+        + query_params
+        + body
+    )
+
     first_hash = hashlib.sha256(
-        (
-            nonce
-            + timestamp
-            + api_key
-            + body
-        ).encode()
+        digest_input.encode(
+            "utf-8"
+        )
     ).hexdigest()
 
-    signature = hashlib.sha256(
+    return hashlib.sha256(
         (
             first_hash
             + secret_key
-        ).encode()
+        ).encode("utf-8")
     ).hexdigest()
 
-    return signature
 
-def get_auth_headers():
-    timestamp = str(int(time.time() * 1000))
+def get_auth_headers(
+    params=None,
+    body="",
+):
+    timestamp = str(
+        int(time.time() * 1000)
+    )
     nonce = uuid.uuid4().hex
 
     signature = create_signature(
@@ -76,6 +264,10 @@ def get_auth_headers():
         BITUNIX_SECRET_KEY,
         timestamp,
         nonce,
+        query_params=canonical_query(
+            params
+        ),
+        body=body,
     )
 
     return {
@@ -83,28 +275,41 @@ def get_auth_headers():
         "sign": signature,
         "timestamp": timestamp,
         "nonce": nonce,
-        "Content-Type": "application/json",
+        "language": "en-US",
+        "Content-Type": (
+            "application/json"
+        ),
     }
 
-def get_klines(
-    symbol,
-    interval,
-    limit=300,
+
+def bitunix_private_request(
+    method,
+    path,
+    params=None,
+    payload=None,
 ):
-    url = (
-        BASE_URL
-        + "/api/v1/futures/market/kline"
-    )
+    body = ""
 
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "limit": limit,
-    }
+    if payload is not None:
+        body = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
 
-    response = requests.get(
-        url,
+    response = requests.request(
+        method,
+        BASE_URL + path,
         params=params,
+        data=(
+            body
+            if body
+            else None
+        ),
+        headers=get_auth_headers(
+            params=params,
+            body=body,
+        ),
         timeout=10,
     )
 
@@ -115,27 +320,97 @@ def get_klines(
     if result.get("code") != 0:
         raise RuntimeError(result)
 
-    data = result.get("data", [])
+    return result
+
+
+def get_klines(
+    symbol,
+    interval,
+    limit=300,
+):
+    response = requests.get(
+        (
+            BASE_URL
+            + "/api/v1/futures/market/kline"
+        ),
+        params={
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit,
+        },
+        timeout=10,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("code") != 0:
+        raise RuntimeError(result)
 
     candles = []
 
-    for item in data:
-        candles.append({
-            "timestamp": int(item["time"]),
-            "open": float(item["open"]),
-            "high": float(item["high"]),
-            "low": float(item["low"]),
-            "close": float(item["close"]),
-            "volume": float(
-                item.get("baseVol", 0) or 0
-            ),
-        })
+    for item in result.get(
+        "data",
+        [],
+    ):
+        candles.append(
+            {
+                "timestamp": int(
+                    item["time"]
+                ),
+                "open": float(
+                    item["open"]
+                ),
+                "high": float(
+                    item["high"]
+                ),
+                "low": float(
+                    item["low"]
+                ),
+                "close": float(
+                    item["close"]
+                ),
+                "volume": float(
+                    item.get(
+                        "baseVol",
+                        0,
+                    )
+                    or 0
+                ),
+            }
+        )
 
     candles.sort(
-        key=lambda candle: candle["timestamp"]
+        key=lambda candle: (
+            candle["timestamp"]
+        )
     )
 
     return candles
+
+
+def get_pending_positions(
+    symbol=None,
+):
+    params = {}
+
+    if symbol:
+        params["symbol"] = symbol
+
+    return bitunix_private_request(
+        "GET",
+        (
+            "/api/v1/futures/position/"
+            "get_pending_positions"
+        ),
+        params=(
+            params
+            if params
+            else None
+        ),
+    )
+
 
 def analyze_symbol(symbol):
     entry_candles = get_klines(
@@ -167,7 +442,7 @@ def analyze_symbol(symbol):
         bos_to_fvg_candles = 4
         min_fvg_atr_ratio = 0.10
 
-    result = calculate_signal(
+    return calculate_signal(
         entry_candles,
         confirmation_candles,
         trend_candles,
@@ -177,76 +452,28 @@ def analyze_symbol(symbol):
         min_fvg_atr_ratio,
     )
 
-    return result
 
-def get_account_balance():
-    url = BASE_URL + "/api/v1/cp/asset/query"
-
-    headers = get_auth_headers()
-
-    response = requests.get(
-        url,
-        headers=headers,
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
-    return response.json()
-
-def pending_entry_reached(pending_setup, candle):
-    setup = pending_setup["setup"]
-    entry = float(setup["entry"])
-
-    low = float(candle["low"])
-    high = float(candle["high"])
-
-    return low <= entry <= high
-
-def pending_setup_expired(pending_setup, current_candle_ts):
-    setup = pending_setup["setup"]
-
-    fvg_timestamp = int(setup["fvg_timestamp"])
-
-    expiry_candles = int(
-        getattr(config, "SETUP_EXPIRY_CANDLES", 5)
-    )
-
-    expiry_ms = expiry_candles * 60_000
-
-    return current_candle_ts > (
-        fvg_timestamp + expiry_ms
-    )
-
-def pending_setup_invalidated(pending_setup, candle):
-    setup = pending_setup["setup"]
-    signal = pending_setup["signal"]
-
-    stop = float(setup["stop"])
-    low = float(candle["low"])
-    high = float(candle["high"])
-
-    if signal == "PENDING_LONG":
-        return low <= stop
-
-    if signal == "PENDING_SHORT":
-        return high >= stop
-
-    return True
-
-def get_last_closed_1m_candle(symbol):
+def get_last_closed_1m_candle(
+    symbol,
+):
     candles = get_klines(
         symbol,
         "1m",
         limit=5,
     )
 
-    now_ms = int(time.time() * 1000)
+    now_ms = int(
+        time.time() * 1000
+    )
 
     closed_candles = [
         candle
         for candle in candles
-        if candle["timestamp"] + 60_000 <= now_ms
+        if (
+            candle["timestamp"]
+            + 60_000
+            <= now_ms
+        )
     ]
 
     if not closed_candles:
@@ -254,33 +481,151 @@ def get_last_closed_1m_candle(symbol):
 
     return closed_candles[-1]
 
+
+def pending_entry_reached(
+    pending_setup,
+    candle,
+):
+    entry = float(
+        pending_setup[
+            "setup"
+        ]["entry"]
+    )
+
+    return (
+        float(candle["low"])
+        <= entry
+        <= float(candle["high"])
+    )
+
+
+def pending_setup_expired(
+    pending_setup,
+    current_candle_ts,
+):
+    fvg_timestamp = int(
+        pending_setup[
+            "setup"
+        ]["fvg_timestamp"]
+    )
+
+    expiry_candles = int(
+        getattr(
+            config,
+            "SETUP_EXPIRY_CANDLES",
+            5,
+        )
+    )
+
+    return (
+        current_candle_ts
+        > (
+            fvg_timestamp
+            + expiry_candles
+            * 60_000
+        )
+    )
+
+
+def pending_setup_invalidated(
+    pending_setup,
+    candle,
+):
+    stop = float(
+        pending_setup[
+            "setup"
+        ]["stop"]
+    )
+
+    signal = pending_setup[
+        "signal"
+    ]
+
+    if signal == "PENDING_LONG":
+        return (
+            float(
+                candle["low"]
+            )
+            <= stop
+        )
+
+    if signal == "PENDING_SHORT":
+        return (
+            float(
+                candle["high"]
+            )
+            >= stop
+        )
+
+    return True
+
+
 def build_order_plan(
     pending_setup,
-    qty=LIVE_TEST_QTY,
+    qty=None,
 ):
-    setup = pending_setup["setup"]
-    signal = pending_setup["signal"]
+    symbol = pending_setup[
+        "symbol"
+    ]
 
-    entry = float(setup["entry"])
-    stop = float(setup["stop"])
+    setup = pending_setup[
+        "setup"
+    ]
 
-    risk = abs(entry - stop)
+    signal = pending_setup[
+        "signal"
+    ]
+
+    if qty is None:
+        qty = (
+            LIVE_QTY_BY_SYMBOL[
+                symbol
+            ]
+        )
+
+    entry = float(
+        setup["entry"]
+    )
+
+    stop = float(
+        setup["stop"]
+    )
+
+    risk = abs(
+        entry - stop
+    )
+
+    if risk <= 0:
+        raise ValueError(
+            "Ungültige Risk-Distanz"
+        )
 
     if signal == "PENDING_LONG":
         side = "BUY"
-        tp1 = entry + risk
-        tp2 = entry + (risk * 1.2)
-
+        tp1 = (
+            entry + risk
+        )
+        tp2 = (
+            entry
+            + risk * 1.2
+        )
     elif signal == "PENDING_SHORT":
         side = "SELL"
-        tp1 = entry - risk
-        tp2 = entry - (risk * 1.2)
-
+        tp1 = (
+            entry - risk
+        )
+        tp2 = (
+            entry
+            - risk * 1.2
+        )
     else:
-        raise ValueError("Unbekanntes Pending-Signal")
+        raise ValueError(
+            "Unbekanntes "
+            "Pending-Signal"
+        )
 
     return {
-        "symbol": pending_setup.get("symbol"),
+        "symbol": symbol,
         "side": side,
         "qty": str(qty),
         "entry": entry,
@@ -288,37 +633,262 @@ def build_order_plan(
         "tp1": tp1,
         "tp2": tp2,
         "risk_distance": risk,
+        "created_at": (
+            utc_now_iso()
+        ),
     }
 
-def open_position_from_plan(plan):
+
+def create_approval(plan):
+    approval = {
+        "status": "WAITING",
+        "plan": plan,
+        "created_at": (
+            utc_now_iso()
+        ),
+    }
+
+    APPROVAL_FILE.write_text(
+        json.dumps(
+            approval,
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    log_event(
+        "APPROVAL_CREATED",
+        symbol=plan["symbol"],
+        details=plan,
+    )
+
+    return approval
+
+
+def read_approval():
+    if not APPROVAL_FILE.exists():
+        return None
+
+    try:
+        return json.loads(
+            APPROVAL_FILE.read_text(
+                encoding="utf-8"
+            )
+        )
+    except (
+        OSError,
+        json.JSONDecodeError,
+    ):
+        return None
+
+
+def clear_approval():
+    if APPROVAL_FILE.exists():
+        APPROVAL_FILE.unlink()
+
+
+def approve_pending_order():
+    approval = read_approval()
+
+    if (
+        not approval
+        or approval.get(
+            "status"
+        )
+        != "WAITING"
+    ):
+        print(
+            "Keine wartende "
+            "Order vorhanden."
+        )
+        return
+
+    plan = approval["plan"]
+
+    approval["status"] = (
+        "APPROVED"
+    )
+    approval["approved_at"] = (
+        utc_now_iso()
+    )
+
+    APPROVAL_FILE.write_text(
+        json.dumps(
+            approval,
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    log_event(
+        "APPROVAL_GRANTED",
+        symbol=plan["symbol"],
+        details=plan,
+    )
+
+    print(
+        "Order bestätigt:"
+    )
+    print(
+        json.dumps(
+            plan,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+    print("")
+    print(
+        "Die Echtgeld-Ausführung "
+        "bleibt getrennt. "
+        "Der Bot führt weiterhin "
+        "keine autonome Echtgeld-"
+        "Order aus."
+    )
+
+
+def reject_pending_order():
+    approval = read_approval()
+
+    if (
+        not approval
+        or approval.get(
+            "status"
+        )
+        != "WAITING"
+    ):
+        print(
+            "Keine wartende "
+            "Order vorhanden."
+        )
+        return
+
+    plan = approval["plan"]
+
+    log_event(
+        "APPROVAL_REJECTED",
+        symbol=plan["symbol"],
+        details=plan,
+    )
+
+    clear_approval()
+
+    print(
+        "Order abgelehnt."
+    )
+
+
+def show_status():
+    print(
+        json.dumps(
+            {
+                "live_trading": (
+                    LIVE_TRADING
+                ),
+                "api_key_loaded": bool(
+                    BITUNIX_API_KEY
+                ),
+                "secret_loaded": bool(
+                    BITUNIX_SECRET_KEY
+                ),
+                "pending_setups": (
+                    PENDING_SETUPS
+                ),
+                "open_positions": (
+                    OPEN_POSITIONS
+                ),
+                "approval": (
+                    read_approval()
+                ),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+
+def open_position_from_plan(
+    plan,
+):
     symbol = plan["symbol"]
 
     OPEN_POSITIONS[symbol] = {
         "side": plan["side"],
         "qty": plan["qty"],
-        "entry": float(plan["entry"]),
-        "stop": float(plan["stop"]),
-        "tp1": float(plan["tp1"]),
-        "tp2": float(plan["tp2"]),
+        "remaining_qty": float(
+            plan["qty"]
+        ),
+        "entry": float(
+            plan["entry"]
+        ),
+        "stop": float(
+            plan["stop"]
+        ),
+        "tp1": float(
+            plan["tp1"]
+        ),
+        "tp2": float(
+            plan["tp2"]
+        ),
         "tp1_hit": False,
-        "status": "OPEN",
-        "remaining_qty": float(plan["qty"]),
-        "tp1_close_percent": 70.0,
-        "tp2_close_percent": 30.0,
+        "tp1_close_percent": float(
+            getattr(
+                config,
+                "TP1_CLOSE_PERCENT",
+                70.0,
+            )
+        ),
+        "tp2_close_percent": float(
+            getattr(
+                config,
+                "TP2_CLOSE_PERCENT",
+                30.0,
+            )
+        ),
         "break_even_active": False,
+        "status": "OPEN",
+        "opened_at": utc_now_iso(),
     }
 
-    return OPEN_POSITIONS[symbol]
+    save_state()
 
-def check_position_levels(position, candle):
+    log_event(
+        "POSITION_OPENED",
+        symbol=symbol,
+        details=(
+            OPEN_POSITIONS[symbol]
+        ),
+    )
+
+    return OPEN_POSITIONS[
+        symbol
+    ]
+
+
+def check_position_levels(
+    position,
+    candle,
+):
     side = position["side"]
 
-    low = float(candle["low"])
-    high = float(candle["high"])
+    low = float(
+        candle["low"]
+    )
+    high = float(
+        candle["high"]
+    )
 
-    stop = float(position["stop"])
-    tp1 = float(position["tp1"])
-    tp2 = float(position["tp2"])
+    stop = float(
+        position["stop"]
+    )
+    tp1 = float(
+        position["tp1"]
+    )
+    tp2 = float(
+        position["tp2"]
+    )
 
     if side == "BUY":
         if low <= stop:
@@ -327,7 +897,13 @@ def check_position_levels(position, candle):
         if high >= tp2:
             return "TP2"
 
-        if not position.get("tp1_hit", False) and high >= tp1:
+        if (
+            not position.get(
+                "tp1_hit",
+                False,
+            )
+            and high >= tp1
+        ):
             return "TP1"
 
     if side == "SELL":
@@ -337,29 +913,39 @@ def check_position_levels(position, candle):
         if low <= tp2:
             return "TP2"
 
-        if not position.get("tp1_hit", False) and low <= tp1:
+        if (
+            not position.get(
+                "tp1_hit",
+                False,
+            )
+            and low <= tp1
+        ):
             return "TP1"
 
     return None
 
-def update_position_state(position, event):
+
+def update_position_state(
+    position,
+    event,
+):
     if event is None:
         return position
 
     if event == "TP1":
         position["tp1_hit"] = True
 
-        close_percent = float(
-            position.get(
-                "tp1_close_percent",
-                70.0,
-            )
-        )
-
         remaining_qty = float(
             position.get(
                 "remaining_qty",
                 position["qty"],
+            )
+        )
+
+        close_percent = float(
+            position.get(
+                "tp1_close_percent",
+                70.0,
             )
         )
 
@@ -369,37 +955,63 @@ def update_position_state(position, event):
             / 100.0
         )
 
-        position["remaining_qty"] = max(
+        position[
+            "remaining_qty"
+        ] = max(
             0.0,
-            remaining_qty - closed_qty,
+            remaining_qty
+            - closed_qty,
         )
 
         position["stop"] = float(
             position["entry"]
         )
 
-        position["break_even_active"] = True
-        position["status"] = "OPEN"
+        position[
+            "break_even_active"
+        ] = True
+
+        position["status"] = (
+            "OPEN"
+        )
 
         return position
 
     if event == "TP2":
-        position["remaining_qty"] = 0.0
-        position["status"] = "CLOSED_TP2"
+        position[
+            "remaining_qty"
+        ] = 0.0
+
+        position["status"] = (
+            "CLOSED_TP2"
+        )
+
         return position
 
     if event == "STOP":
-        position["remaining_qty"] = 0.0
-        position["status"] = "CLOSED_STOP"
+        position[
+            "remaining_qty"
+        ] = 0.0
+
+        position["status"] = (
+            "CLOSED_STOP"
+        )
+
         return position
 
     return position
 
-def process_open_position(symbol, candle):
+
+def process_open_position(
+    symbol,
+    candle,
+):
     if symbol not in OPEN_POSITIONS:
         return None
 
-    position = OPEN_POSITIONS[symbol]
+    position = OPEN_POSITIONS[
+        symbol
+    ]
 
     event = check_position_levels(
         position,
@@ -411,199 +1023,378 @@ def process_open_position(symbol, candle):
         event,
     )
 
-    if event is not None:
-        print("")
-        print("POSITION EVENT:")
-        print(symbol, event)
+    if event is None:
+        return {
+            "event": None,
+            "position": position,
+        }
 
-    if position["status"].startswith("CLOSED_"):
-        closed_position = position.copy()
+    log_event(
+        f"POSITION_{event}",
+        symbol=symbol,
+        details=position,
+    )
 
-        del OPEN_POSITIONS[symbol]
+    print("")
+    print("POSITION EVENT:")
+    print(symbol, event)
+
+    if position["status"].startswith(
+        "CLOSED_"
+    ):
+        closed_position = (
+            position.copy()
+        )
+
+        del OPEN_POSITIONS[
+            symbol
+        ]
+
+        save_state()
 
         return {
             "event": event,
-            "position": closed_position,
+            "position": (
+                closed_position
+            ),
         }
+
+    save_state()
 
     return {
         "event": event,
         "position": position,
     }
 
-def confirm_live_order(order_data):
-    print("")
-    print("LIVE-ORDER BEREIT:")
-    print(order_data)
 
-    answer = input(
-        "Order wirklich senden? (JA/NEIN): "
-    ).strip().upper()
-
-    return answer == "JA"
-
-def review_order_plan(
-    pending_setup,
-    qty=LIVE_TEST_QTY,
+def store_pending_setup(
+    symbol,
+    result,
 ):
-    plan = build_order_plan(
-        pending_setup,
-        qty=qty,
+    setup = result[
+        "indicators"
+    ]["setup"]
+
+    setup_id = result[
+        "indicators"
+    ].get("setup_id")
+
+    if (
+        setup_id
+        and LAST_SETUP_ID.get(
+            symbol
+        )
+        == setup_id
+    ):
+        return False
+
+    PENDING_SETUPS[symbol] = {
+        "created_at": (
+            utc_now_iso()
+        ),
+        "signal": (
+            result["signal"]
+        ),
+        "setup": setup,
+        "setup_id": setup_id,
+    }
+
+    if setup_id:
+        LAST_SETUP_ID[
+            symbol
+        ] = setup_id
+
+    save_state()
+
+    log_event(
+        "PENDING_CREATED",
+        symbol=symbol,
+        details=(
+            PENDING_SETUPS[
+                symbol
+            ]
+        ),
     )
 
-    confirmed = confirm_live_order(plan)
+    return True
 
-    if confirmed:
-        print("")
-        print("ORDER MANUELL BESTÄTIGT")
-        print(plan)
-    else:
-        print("")
-        print("ORDER ABGELEHNT")
 
-    return confirmed
+def process_pending_setup(
+    symbol,
+):
+    if symbol not in PENDING_SETUPS:
+        return
 
-if __name__ == "__main__":
-    print("LSOB V7 Live-Paper")
-    print("LIVE_TRADING:", LIVE_TRADING)
+    candle = (
+        get_last_closed_1m_candle(
+            symbol
+        )
+    )
+
+    if candle is None:
+        return
+
+    candle_ts = candle[
+        "timestamp"
+    ]
+
+    if (
+        LAST_PROCESSED_CANDLE.get(
+            symbol
+        )
+        == candle_ts
+    ):
+        return
+
+    LAST_PROCESSED_CANDLE[
+        symbol
+    ] = candle_ts
+
+    pending = PENDING_SETUPS[
+        symbol
+    ]
+
+    if pending_setup_invalidated(
+        pending,
+        candle,
+    ):
+        print(
+            "PENDING-SETUP "
+            "UNGÜLTIG:",
+            symbol,
+        )
+
+        log_event(
+            "PENDING_INVALIDATED",
+            symbol=symbol,
+            details=pending,
+        )
+
+        del PENDING_SETUPS[
+            symbol
+        ]
+
+        save_state()
+        return
+
+    if pending_setup_expired(
+        pending,
+        candle_ts,
+    ):
+        print(
+            "PENDING-SETUP "
+            "ABGELAUFEN:",
+            symbol,
+        )
+
+        log_event(
+            "PENDING_EXPIRED",
+            symbol=symbol,
+            details=pending,
+        )
+
+        del PENDING_SETUPS[
+            symbol
+        ]
+
+        save_state()
+        return
+
+    if not pending_entry_reached(
+        pending,
+        candle,
+    ):
+        save_state()
+        return
+
+    plan_input = (
+        pending.copy()
+    )
+    plan_input["symbol"] = (
+        symbol
+    )
+
+    plan = build_order_plan(
+        plan_input
+    )
+
+    create_approval(plan)
+
+    print("")
+    print(
+        "V7 ENTRY ERREICHT – "
+        "BESTÄTIGUNG ERFORDERLICH:"
+    )
+
+    print(
+        json.dumps(
+            plan,
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+
+    print("")
+    print(
+        "Bestätigen mit:"
+    )
+    print(
+        "python live_paper_v7.py "
+        "approve"
+    )
+    print(
+        "Ablehnen mit:"
+    )
+    print(
+        "python live_paper_v7.py "
+        "reject"
+    )
+
+    del PENDING_SETUPS[
+        symbol
+    ]
+
+    save_state()
+
+
+def run_loop():
+    load_state()
+
+    print(
+        "LSOB V7 Live-Paper"
+    )
+    print(
+        "LIVE_TRADING:",
+        LIVE_TRADING,
+    )
+    print(
+        "API Key geladen:",
+        bool(BITUNIX_API_KEY),
+    )
+    print(
+        "Secret geladen:",
+        bool(BITUNIX_SECRET_KEY),
+    )
 
     while True:
         try:
-            for symbol in SYMBOLS:
-                result = analyze_symbol(symbol)
+            approval = read_approval()
 
-                if (
-                    FORCE_TEST_POSITION
-                    and symbol == "BTCUSDT"
-                    and symbol not in OPEN_POSITIONS
-                ):
-                    OPEN_POSITIONS[symbol] = {
-                        "side": "BUY",
-                        "qty": "0.0001",
-                        "entry": 100.0,
-                        "stop": 95.0,
-                        "tp1": 105.0,
-                        "tp2": 110.0,
-                        "tp1_hit": False,
-                        "status": "OPEN",
-                    }
-
+            if (
+                approval
+                and approval.get(
+                    "status"
+                )
+                == "WAITING"
+            ):
                 print("")
-                print(symbol)
+                print(
+                    "Warte auf "
+                    "Order-Bestätigung..."
+                )
 
-                # Offene Position überwachen
-                if symbol in OPEN_POSITIONS:
-                    position_candle = get_last_closed_1m_candle(
-                        symbol
+                print(
+                    json.dumps(
+                        approval[
+                            "plan"
+                        ],
+                        indent=2,
+                        ensure_ascii=False,
+                    )
+                )
+
+                time.sleep(
+                    POLL_SECONDS
+                )
+                continue
+
+            for symbol in SYMBOLS:
+                if (
+                    symbol
+                    in OPEN_POSITIONS
+                ):
+                    position_candle = (
+                        get_last_closed_1m_candle(
+                            symbol
+                        )
                     )
 
-                    if position_candle is not None:
+                    if (
+                        position_candle
+                        is not None
+                    ):
                         process_open_position(
                             symbol,
                             position_candle,
                         )
 
-                # Bereits gespeichertes Pending-Setup überwachen
-                if symbol in PENDING_SETUPS:
-                    candle = get_last_closed_1m_candle(
-                        symbol
-                    )
-
-                    if candle is not None:
-                        candle_ts = candle["timestamp"]
-
-                        if pending_setup_invalidated(
-                            PENDING_SETUPS[symbol],
-                            candle,
-                        ):
-                            print(
-                                "PENDING-SETUP UNGÜLTIG:"
-                            )
-                            print(symbol)
-
-                            del PENDING_SETUPS[symbol]
-
-                        elif pending_setup_expired(
-                            PENDING_SETUPS[symbol],
-                            candle_ts,
-                        ):
-                            print(
-                                "PENDING-SETUP ABGELAUFEN:"
-                            )
-                            print(symbol)
-
-                            del PENDING_SETUPS[symbol]
-
-                        elif (
-                            LAST_PROCESSED_CANDLE.get(symbol)
-                            != candle_ts
-                        ):
-                            LAST_PROCESSED_CANDLE[
-                                symbol
-                            ] = candle_ts
-
-                            if pending_entry_reached(
-                                PENDING_SETUPS[symbol],
-                                candle,
-                            ):
-                                print(
-                                    "V7 ENTRY ERREICHT:"
-                                )
-                                print(symbol)
-
-                                pending = (
-                                    PENDING_SETUPS[
-                                        symbol
-                                    ].copy()
-                                )
-                                pending["symbol"] = symbol
-
-                                review_order_plan(
-                                    pending,
-                                    qty="0.0001",
-                                )
-
-                                del PENDING_SETUPS[
-                                    symbol
-                                ]
-
-                # Neues V7-Signal auswerten
-                if result is None:
-                    print("Signal: None")
-                    continue
-
-                signal = result.get("signal")
-
-                if str(signal).startswith(
-                    "PENDING_"
-                ):
-                    if symbol not in PENDING_SETUPS:
-                        PENDING_SETUPS[symbol] = {
-                            "created_at": datetime.now(
-                                timezone.utc
-                            ).isoformat(),
-                            "signal": signal,
-                            "setup": result[
-                                "indicators"
-                            ]["setup"],
-                        }
-
-                        print(
-                            "NEUES PENDING-SETUP "
-                            "GESPEICHERT:"
-                        )
-                        print(
-                            PENDING_SETUPS[symbol]
-                        )
-
-                print(
-                    "Signal:",
-                    signal,
+                process_pending_setup(
+                    symbol
                 )
 
+                result = analyze_symbol(
+                    symbol
+                )
+
+                if (
+                    result
+                    and str(
+                        result.get(
+                            "signal",
+                            "",
+                        )
+                    ).startswith(
+                        "PENDING_"
+                    )
+                    and symbol
+                    not in PENDING_SETUPS
+                    and symbol
+                    not in OPEN_POSITIONS
+                ):
+                    if store_pending_setup(
+                        symbol,
+                        result,
+                    ):
+                        print("")
+                        print(
+                            "NEUES "
+                            "PENDING-SETUP "
+                            "GESPEICHERT:"
+                        )
+                        print(symbol)
+                        print(
+                            json.dumps(
+                                PENDING_SETUPS[
+                                    symbol
+                                ],
+                                indent=2,
+                                ensure_ascii=False,
+                            )
+                        )
+
+                print("")
+                print(symbol)
+                print(
+                    "Signal:",
+                    (
+                        None
+                        if result
+                        is None
+                        else result.get(
+                            "signal"
+                        )
+                    ),
+                )
                 print(
                     "Grund:",
-                    result.get("reason"),
+                    (
+                        None
+                        if result
+                        is None
+                        else result.get(
+                            "reason"
+                        )
+                    ),
                 )
 
             print("")
@@ -613,13 +1404,82 @@ if __name__ == "__main__":
                 "Sekunden..."
             )
 
-            time.sleep(POLL_SECONDS)
+            time.sleep(
+                POLL_SECONDS
+            )
 
         except KeyboardInterrupt:
+            save_state()
             print("")
             print("Bot beendet.")
             break
 
-        except Exception as e:
-            print("Fehler:", e)
-            time.sleep(POLL_SECONDS)
+        except Exception as exc:
+            log_event(
+                "LOOP_ERROR",
+                details={
+                    "error": str(exc),
+                },
+            )
+            print(
+                "Fehler:",
+                exc,
+            )
+            time.sleep(
+                POLL_SECONDS
+            )
+
+
+def main():
+    load_state()
+
+    command = (
+        sys.argv[1].lower()
+        if len(sys.argv) > 1
+        else "run"
+    )
+
+    if command == "run":
+        run_loop()
+
+    elif command == "approve":
+        approve_pending_order()
+
+    elif command == "reject":
+        reject_pending_order()
+
+    elif command == "status":
+        show_status()
+
+    elif command == "positions":
+        if (
+            not BITUNIX_API_KEY
+            or not BITUNIX_SECRET_KEY
+        ):
+            print(
+                "API-Key/Secret fehlen."
+            )
+            return
+
+        print(
+            json.dumps(
+                get_pending_positions(),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+
+    else:
+        print(
+            "Unbekannter Befehl:",
+            command,
+        )
+        print(
+            "Verfügbar: "
+            "run, approve, reject, "
+            "status, positions"
+        )
+
+
+if __name__ == "__main__":
+    main()
