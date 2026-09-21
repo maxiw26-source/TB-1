@@ -3,6 +3,7 @@ import csv
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -63,13 +64,50 @@ def request_klines(
         },
     )
 
-    with urllib.request.urlopen(
-        request,
-        timeout=20,
-    ) as response:
-        return json.loads(
-            response.read().decode("utf-8")
-        )
+    last_error = None
+
+    for attempt in range(1, 7):
+        try:
+            with urllib.request.urlopen(
+                request,
+                timeout=20,
+            ) as response:
+                return json.loads(
+                    response.read().decode("utf-8")
+                )
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            OSError,
+        ) as exc:
+            last_error = exc
+
+            if attempt >= 6:
+                break
+
+            wait_seconds = min(
+                30,
+                2 * attempt,
+            )
+
+            print(
+                "Netzwerkfehler – neuer Versuch",
+                attempt,
+                "/ 6 in",
+                wait_seconds,
+                "Sekunden:",
+                exc,
+            )
+
+            time.sleep(
+                wait_seconds
+            )
+
+    raise RuntimeError(
+        "Historischer Download nach 6 "
+        "Versuchen abgebrochen"
+    ) from last_error
 
 
 def normalize(item):
