@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
@@ -28,13 +29,13 @@ def main():
                     "symbol": "BTCUSDT",
                     "side": "LONG",
                     "qty": "0.0001",
-                    "unrealized": status.live_summary.__globals__["Decimal"]("0.12"),
+                    "unrealized": Decimal("0.12"),
                 }
             ],
-            "realized": status.live_summary.__globals__["Decimal"]("0"),
-            "fees": status.live_summary.__globals__["Decimal"]("0.01"),
-            "funding": status.live_summary.__globals__["Decimal"]("0"),
-            "net": status.live_summary.__globals__["Decimal"]("0"),
+            "realized": Decimal("0"),
+            "fees": Decimal("0.01"),
+            "funding": Decimal("0"),
+            "net": Decimal("0"),
         },
     ), patch.object(
         status,
@@ -43,7 +44,7 @@ def main():
             "entries": 1,
             "tp1": 0,
             "closed": 0,
-            "net": status.live_summary.__globals__["Decimal"]("0"),
+            "net": Decimal("0"),
             "wins": 0,
             "losses": 0,
             "position_open": True,
