@@ -27,7 +27,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py backtest_btc_v8_multiblock.py live_paper_v8_btc.py selftest_v8.py selftest_v8_paper.py bot_runtime.py telegram_approval.py bitunix_live.py live_partial_tp.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_live_partials.py selftest_strategy_expansion.py
+          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py backtest_btc_v8_multiblock.py live_paper_v8_btc.py selftest_v8.py selftest_v8_paper.py bot_runtime.py telegram_approval.py bitunix_live.py live_partial_tp.py live_auto_mode.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_live_partials.py selftest_auto_live.py selftest_strategy_expansion.py
 
       - name: Core selftest
         run: python selftest_v7.py
@@ -46,3 +46,6 @@ jobs:
 
       - name: V8 paper monitor selftest
         run: python selftest_v8_paper.py
+
+      - name: Auto-live arming selftest
+        run: python selftest_auto_live.py

@@ -24,6 +24,7 @@ from bitunix_live import (
     place_approved_entry,
 )
 from live_partial_tp import choose_live_exit_profile
+from live_auto_mode import auto_live_active, auto_live_status
 
 from telegram_approval import (
     notify_plan,
@@ -868,28 +869,73 @@ def process_pending_setup(
 
     create_approval(plan)
 
-    if telegram_configured():
-        try:
-            notify_plan(plan)
-            log_event(
-                "TELEGRAM_PLAN_SENT",
-                symbol=symbol,
-                details=plan,
-            )
-        except Exception as exc:
-            log_event(
-                "TELEGRAM_NOTIFY_ERROR",
-                symbol=symbol,
-                details={
-                    "error": str(exc),
-                },
+    auto_mode = auto_live_active()
+
+    if auto_mode:
+        approved = approve_order()
+
+        log_event(
+            "AUTO_APPROVAL_GRANTED",
+            symbol=symbol,
+            details=plan,
+        )
+
+        if telegram_configured():
+            try:
+                send_message(
+                    "LSOB V7 AUTO-LIVE\n"
+                    "Plan automatisch bestätigt.\n"
+                    f"Symbol: {plan['symbol']}\n"
+                    f"Seite: {plan['side']}\n"
+                    f"Menge: {plan['qty']}\n"
+                    "Die vorhandenen Live-Guardrails "
+                    "werden vor der Order weiter geprüft."
+                )
+            except Exception as exc:
+                log_event(
+                    "TELEGRAM_NOTIFY_ERROR",
+                    symbol=symbol,
+                    details={
+                        "error": str(exc),
+                    },
+                )
+
+        print("")
+        print(
+            "ENTRY ERREICHT – "
+            "AUTO-LIVE PLAN BESTÄTIGT"
+        )
+
+        if approved is None:
+            raise RuntimeError(
+                "Auto-Bestätigung konnte "
+                "nicht gesetzt werden"
             )
 
-    print("")
-    print(
-        "ENTRY ERREICHT – "
-        "BESTÄTIGUNG ERFORDERLICH"
-    )
+    else:
+        if telegram_configured():
+            try:
+                notify_plan(plan)
+                log_event(
+                    "TELEGRAM_PLAN_SENT",
+                    symbol=symbol,
+                    details=plan,
+                )
+            except Exception as exc:
+                log_event(
+                    "TELEGRAM_NOTIFY_ERROR",
+                    symbol=symbol,
+                    details={
+                        "error": str(exc),
+                    },
+                )
+
+        print("")
+        print(
+            "ENTRY ERREICHT – "
+            "BESTÄTIGUNG ERFORDERLICH"
+        )
+
     print(
         json.dumps(
             plan,
@@ -911,9 +957,18 @@ def run_loop():
     print(
         "LSOB V7 läuft."
     )
+    auto_status = auto_live_status()
+
     print(
-        "Alle echten Aktionen "
-        "bleiben bestätigungspflichtig."
+        (
+            "AUTO-LIVE aktiv: echte Entry-Pläne "
+            "werden automatisch bestätigt."
+            if auto_status["active"]
+            else (
+                "AUTO-LIVE aus: echte Aktionen "
+                "bleiben bestätigungspflichtig."
+            )
+        )
     )
     print(
         "Telegram:",
@@ -1266,6 +1321,9 @@ def status_command():
                 ),
                 "live_execution": (
                     live_execution_status()
+                ),
+                "auto_live": (
+                    auto_live_status()
                 ),
             },
             indent=2,
