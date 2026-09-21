@@ -1,4 +1,6 @@
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, time as dt_time, timedelta
+from pathlib import Path
 
 from live_auto_mode import auto_live_status
 from morning_summary import (
@@ -7,10 +9,70 @@ from morning_summary import (
     live_summary,
     v8_summary,
 )
+EXECUTION_STATE_FILE = Path("live_execution_state.json")
+
+
 from telegram_approval import (
     send_message,
     telegram_configured,
 )
+
+
+
+def tracking_start(now):
+    if not EXECUTION_STATE_FILE.exists():
+        return now
+
+    try:
+        payload = json.loads(
+            EXECUTION_STATE_FILE.read_text(
+                encoding="utf-8"
+            )
+        )
+    except Exception:
+        return now
+
+    timestamps = []
+
+    for attempt in (
+        payload.get("attempts", {})
+        or {}
+    ).values():
+        raw = attempt.get("updated_at")
+
+        if not raw:
+            continue
+
+        try:
+            parsed = datetime.fromisoformat(
+                str(raw).replace(
+                    "Z",
+                    "+00:00",
+                )
+            ).astimezone(TZ)
+        except Exception:
+            continue
+
+        timestamps.append(parsed)
+
+    return min(timestamps) if timestamps else now
+
+
+def hit_rate(closed):
+    if not closed:
+        return 0.0
+
+    winners = sum(
+        1
+        for item in closed
+        if item["net"] > 0
+    )
+
+    return (
+        100.0
+        * winners
+        / len(closed)
+    )
 
 
 def build_message(now=None):
@@ -20,6 +82,22 @@ def build_message(now=None):
     live = live_summary(start, end)
     v8 = v8_summary(start, end)
     auto = auto_live_status()
+
+    day_start = datetime.combine(
+        end.date(),
+        dt_time.min,
+        TZ,
+    )
+    live_today = live_summary(
+        day_start,
+        end,
+    )
+
+    since_start = tracking_start(end)
+    live_total = live_summary(
+        since_start,
+        end,
+    )
 
     lines = [
         "LSOB 2-STUNDEN-UPDATE",
@@ -36,6 +114,20 @@ def build_message(now=None):
         f"Gebühren: {live['fees']:.4f} USDT",
         f"Funding: {live['funding']:+.4f} USDT",
         f"Offene Positionen: {len(live['open'])}",
+        "",
+        "V7 HEUTE",
+        f"Trades heute: {len(live_today['closed'])}",
+        f"Trefferquote heute: {hit_rate(live_today['closed']):.1f}%",
+        f"Netto heute: {fmt_money(live_today['net'])}",
+        "",
+        "V7 SEIT BOT-TRACKING",
+        (
+            "Seit: "
+            + since_start.strftime("%d.%m.%Y %H:%M")
+        ),
+        f"Trades gesamt: {len(live_total['closed'])}",
+        f"Trefferquote gesamt: {hit_rate(live_total['closed']):.1f}%",
+        f"Gesamt-Netto: {fmt_money(live_total['net'])}",
     ]
 
     for item in live["open"][:4]:
