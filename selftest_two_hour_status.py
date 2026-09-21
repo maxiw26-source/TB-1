@@ -19,24 +19,56 @@ def main():
         tzinfo=TZ,
     )
 
+    last_two_hours = {
+        "closed": [],
+        "open": [
+            {
+                "symbol": "BTCUSDT",
+                "side": "LONG",
+                "qty": "0.0001",
+                "unrealized": Decimal("0.12"),
+            }
+        ],
+        "realized": Decimal("0"),
+        "fees": Decimal("0.01"),
+        "funding": Decimal("0"),
+        "net": Decimal("0"),
+    }
+
+    today = {
+        "closed": [
+            {"net": Decimal("0.10")},
+            {"net": Decimal("-0.05")},
+        ],
+        "open": [],
+        "realized": Decimal("0.08"),
+        "fees": Decimal("0.03"),
+        "funding": Decimal("0"),
+        "net": Decimal("0.05"),
+    }
+
+    total = {
+        "closed": [
+            {"net": Decimal("0.10")},
+            {"net": Decimal("-0.05")},
+            {"net": Decimal("0.20")},
+            {"net": Decimal("0.15")},
+        ],
+        "open": [],
+        "realized": Decimal("0.48"),
+        "fees": Decimal("0.08"),
+        "funding": Decimal("0"),
+        "net": Decimal("0.40"),
+    }
+
     with patch.object(
         status,
         "live_summary",
-        return_value={
-            "closed": [],
-            "open": [
-                {
-                    "symbol": "BTCUSDT",
-                    "side": "LONG",
-                    "qty": "0.0001",
-                    "unrealized": Decimal("0.12"),
-                }
-            ],
-            "realized": Decimal("0"),
-            "fees": Decimal("0.01"),
-            "funding": Decimal("0"),
-            "net": Decimal("0"),
-        },
+        side_effect=[
+            last_two_hours,
+            today,
+            total,
+        ],
     ), patch.object(
         status,
         "v8_summary",
@@ -53,6 +85,17 @@ def main():
         status,
         "auto_live_status",
         return_value={"active": True},
+    ), patch.object(
+        status,
+        "tracking_start",
+        return_value=datetime(
+            2026,
+            9,
+            20,
+            18,
+            0,
+            tzinfo=TZ,
+        ),
     ):
         message = status.build_message(now)
 
@@ -61,6 +104,11 @@ def main():
     assert "BTCUSDT LONG" in message
     assert "Entries letzte 2h: 1" in message
     assert "Paper-Position offen: JA" in message
+    assert "Trades heute: 2" in message
+    assert "Trefferquote heute: 50.0%" in message
+    assert "Trades gesamt: 4" in message
+    assert "Trefferquote gesamt: 75.0%" in message
+    assert "Gesamt-Netto: +0.4000 USDT" in message
 
     print("2-STUNDEN-UPDATE SELFTEST ERFOLGREICH")
     print("Keine echte Order wurde gesendet.")
