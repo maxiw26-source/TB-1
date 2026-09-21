@@ -1,0 +1,9 @@
+[Unit]
+Description=LSOB Two-Hour Telegram Status Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/two_hour_status.py
