@@ -1,0 +1,10 @@
+[Unit]
+Description=Run LSOB Morning Summary Daily
+
+[Timer]
+OnCalendar=*-*-* 07:15:00 Europe/Vienna
+Persistent=true
+Unit=lsob-morning-summary.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=LSOB Morning Telegram Summary
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/morning_summary.py
