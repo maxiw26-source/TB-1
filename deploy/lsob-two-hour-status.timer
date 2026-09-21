@@ -1,0 +1,11 @@
+[Unit]
+Description=Run LSOB Two-Hour Status Update
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2h
+Persistent=true
+Unit=lsob-two-hour-status.service
+
+[Install]
+WantedBy=timers.target
