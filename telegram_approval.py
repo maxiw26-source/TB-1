@@ -10,6 +10,7 @@ from bot_runtime import (
     reject_order,
 )
 from bitunix_live import live_execution_status
+from live_auto_mode import auto_live_status
 
 
 STATE_FILE = Path("telegram_state.json")
@@ -171,11 +172,20 @@ def _status_text():
             else "EIN, ABER NICHT ARMED"
         )
 
+    auto_status = auto_live_status()
+
+    auto_label = (
+        "AKTIV"
+        if auto_status.get("active")
+        else "AUS"
+    )
+
     if not approval:
         return (
             "LSOB V7 Status\n"
             "Keine wartende Bestätigung.\n"
-            f"Live-Ausführung: {live_label}"
+            f"Live-Ausführung: {live_label}\n"
+            f"Auto-Live: {auto_label}"
         )
 
     status = approval.get(
@@ -197,7 +207,8 @@ def _status_text():
         "LSOB V7 Status\n"
         f"Approval: {status}\n"
         f"Symbol: {symbol}\n"
-        f"Live-Ausführung: {live_label}"
+        f"Live-Ausführung: {live_label}\n"
+        f"Auto-Live: {auto_label}"
     )
 
 
