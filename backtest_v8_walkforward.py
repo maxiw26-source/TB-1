@@ -1,3 +1,4 @@
+import argparse
 import csv
 import os
 from bisect import bisect_right
@@ -516,13 +517,36 @@ def score(result):
     )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="LSOB V8 Walk-Forward Paper-Test"
+    )
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=SYMBOLS,
+        help="Symbole, z.B. BTCUSDT XRPUSDT BNBUSDT",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
+    symbols = [
+        symbol.upper()
+        for symbol in args.symbols
+    ]
+
     print("LSOB V8 WALK-FORWARD PAPER-TEST")
-    print("BTC + ETH + SOL | LONG + SHORT")
+    print(
+        "Symbole:",
+        ", ".join(symbols),
+        "| LONG + SHORT",
+    )
     print("Training:", TRAIN_DAYS, "Tage | Test:", TEST_DAYS, "Tage")
     print("Keine Live-Änderung.")
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         one_minute = load_csv(symbol, "1m")
 
         end_ts = one_minute[-1]["timestamp"]
