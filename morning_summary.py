@@ -171,7 +171,9 @@ def live_summary(start, end):
     }
 
 
-def v8_summary(start, end):
+def v8_summary(start, end, event_file=None, state_file=None):
+    event_file = event_file if event_file is not None else V8_EVENT_FILE
+    state_file = state_file if state_file is not None else V8_STATE_FILE
     result = {
         "entries": 0,
         "tp1": 0,
@@ -182,11 +184,11 @@ def v8_summary(start, end):
         "position_open": False,
     }
 
-    if V8_EVENT_FILE.exists():
+    if event_file.exists():
         start_s = int(start.timestamp())
         end_s = int(end.timestamp())
 
-        with V8_EVENT_FILE.open(
+        with event_file.open(
             "r",
             encoding="utf-8",
         ) as handle:
@@ -232,10 +234,10 @@ def v8_summary(start, end):
                     else:
                         result["losses"] += 1
 
-    if V8_STATE_FILE.exists():
+    if state_file.exists():
         try:
             state = json.loads(
-                V8_STATE_FILE.read_text(
+                state_file.read_text(
                     encoding="utf-8"
                 )
             )
