@@ -10,6 +10,8 @@ from morning_summary import (
     v8_summary,
 )
 EXECUTION_STATE_FILE = Path("live_execution_state.json")
+ADA_EVENT_FILE = Path("v8_ada_paper_events.jsonl")
+ADA_STATE_FILE = Path("v8_ada_paper_state.json")
 
 
 from telegram_approval import (
@@ -81,6 +83,11 @@ def build_message(now=None):
 
     live = live_summary(start, end)
     v8 = v8_summary(start, end)
+    ada = v8_summary(
+        start, end,
+        event_file=ADA_EVENT_FILE,
+        state_file=ADA_STATE_FILE,
+    )
     auto = auto_live_status()
 
     day_start = datetime.combine(
@@ -148,6 +155,17 @@ def build_message(now=None):
             (
                 "Paper-Position offen: "
                 + ("JA" if v8["position_open"] else "NEIN")
+            ),
+            "",
+            "V8 ADA EXPIRY2 + FVG015 PAPER",
+            f"Entries letzte 2h: {ada['entries']}",
+            f"TP1 letzte 2h: {ada['tp1']}",
+            f"Geschlossene Trades: {ada['closed']}",
+            f"Gewinner/Verlierer: {ada['wins']}/{ada['losses']}",
+            f"Paper-Netto letzte 2h: {fmt_money(ada['net'])}",
+            (
+                "Paper-Position offen: "
+                + ("JA" if ada["position_open"] else "NEIN")
             ),
         ]
     )
