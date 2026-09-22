@@ -13,3 +13,7 @@ live_execution_state.tmp
 v8_paper_state.json
 v8_paper_state.tmp
 v8_paper_events.jsonl
+
+v8_ada_paper_state.json
+v8_ada_paper_state.tmp
+v8_ada_paper_events.jsonl
