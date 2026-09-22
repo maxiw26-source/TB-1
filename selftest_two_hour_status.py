@@ -72,7 +72,7 @@ def main():
     ), patch.object(
         status,
         "v8_summary",
-        return_value={
+        side_effect=[{
             "entries": 1,
             "tp1": 0,
             "closed": 0,
@@ -80,7 +80,15 @@ def main():
             "wins": 0,
             "losses": 0,
             "position_open": True,
-        },
+        }, {
+            "entries": 2,
+            "tp1": 1,
+            "closed": 1,
+            "net": Decimal("0.15"),
+            "wins": 1,
+            "losses": 0,
+            "position_open": False,
+        }],
     ), patch.object(
         status,
         "auto_live_status",
@@ -104,6 +112,10 @@ def main():
     assert "BTCUSDT LONG" in message
     assert "Entries letzte 2h: 1" in message
     assert "Paper-Position offen: JA" in message
+    assert "V8 ADA EXPIRY2 + FVG015 PAPER" in message
+    assert "Entries letzte 2h: 2" in message
+    assert "Paper-Netto letzte 2h: +0.1500 USDT" in message
+    assert "Paper-Position offen: NEIN" in message
     assert "Trades heute: 2" in message
     assert "Trefferquote heute: 50.0%" in message
     assert "Trades gesamt: 4" in message
