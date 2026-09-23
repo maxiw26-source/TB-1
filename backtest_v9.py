@@ -110,7 +110,7 @@ def evaluate_exit(position, candle):
     return None
 
 
-def run_window(candles, features, start_ts, end_ts):
+def run_window(candles, features, start_ts, end_ts, signal_filter=None):
     capital = START_BALANCE
     peak = capital
     worst_dd = 0.0
@@ -181,7 +181,12 @@ def run_window(candles, features, start_ts, end_ts):
 
         # Don't skip the candle after a closure for an earlier pending
         # setup: a new signal is allowed only after cooldown.
-        if position is None and i > cooldown_until and features[i] is not None:
+        if (
+            position is None
+            and i > cooldown_until
+            and features[i] is not None
+            and (signal_filter is None or signal_filter[i])
+        ):
             side = signal(candle, features[i])
             if side is not None:
                 candidate = {
