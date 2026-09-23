@@ -245,7 +245,7 @@ def write_trades(path, result):
 def main():
     parser = argparse.ArgumentParser(description="V9 mean-reversion research backtest")
     parser.add_argument("--symbols", nargs="+", default=["BTCUSDT", "ETHUSDT", "ADAUSDT"])
-    parser.add_argument("--train-days", type=int, default=245)
+    parser.add_argument("--train-days", type=int, default=240)
     parser.add_argument("--test-days", type=int, default=120)
     args = parser.parse_args()
     if args.train_days < 30 or args.test_days < 30:
@@ -274,9 +274,9 @@ def main():
         last = candles[-1]["timestamp"]
         test_start = last - args.test_days * day_ms
         train_start = test_start - args.train_days * day_ms
-        if candles[0]["timestamp"] > train_start - 7 * day_ms:
+        if candles[0]["timestamp"] > train_start - 2 * day_ms:
             print(
-                "Nicht genug Daten fuer Training + 7 Tage Indikator-Warmup; "
+                "Nicht genug Daten fuer Training + 2 Tage Indikator-Warmup; "
                 "bitte historical_data.py mit mehr Tagen ausfuehren.",
                 flush=True,
             )
