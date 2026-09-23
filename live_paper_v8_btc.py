@@ -33,7 +33,7 @@ PROFILE = {
     "tp2_r": 1.3,
 }
 
-PAPER_NOTIONAL_USDT = 10.0
+PAPER_NOTIONAL_USDT = 100.0
 TP1_CLOSE_PERCENT = 70.0
 MAKER_FEE_PERCENT = float(getattr(config, "MAKER_FEE_PERCENT", 0.02))
 TAKER_FEE_PERCENT = float(getattr(config, "TAKER_FEE_PERCENT", 0.06))
@@ -248,6 +248,7 @@ def build_position(setup):
     return {
         "side": side,
         "entry": entry,
+        "paper_notional_usdt": PAPER_NOTIONAL_USDT,
         "stop": stop,
         "tp1": tp1,
         "tp2": tp2,
@@ -379,6 +380,17 @@ def close_trade(state, reason):
     stats["trades"] += 1
     stats["net_pnl_usdt"] += net
 
+    # Preserve the running totals, but separately track trades opened with
+    # this size. Positions saved before the size change still close at 10 USDT.
+    notional = float(position.get("paper_notional_usdt") or
+                     float(position["entry"]) * float(position["qty"]))
+    size_key = f"{notional:.2f}"
+    size_stats = state.setdefault("stats_by_notional", {}).setdefault(
+        size_key, {"trades": 0, "net_pnl_usdt": 0.0}
+    )
+    size_stats["trades"] += 1
+    size_stats["net_pnl_usdt"] += net
+
     if position["side"] == "LONG":
         stats["longs"] += 1
     else:
@@ -392,6 +404,7 @@ def close_trade(state, reason):
     details = {
         "side": position["side"],
         "reason": reason,
+        "paper_notional_usdt": notional,
         "net_pnl_usdt": net,
         "entry": position["entry"],
         "tp1": position["tp1"],
@@ -545,16 +558,24 @@ def analyze_for_setup(state):
 
 def status_text(state):
     stats = state["stats"]
+    size_stats = state.get("stats_by_notional", {}).get(
+        f"{PAPER_NOTIONAL_USDT:.2f}", {}
+    )
 
     return (
         "LSOB V8 BTC PAPER Status\n"
         f"Profil: {PROFILE['name']}\n"
+        f"Neue Positionen: {PAPER_NOTIONAL_USDT:.2f} USDT\n"
         f"Pending: {'JA' if state['pending'] else 'NEIN'}\n"
         f"Position: {'JA' if state['position'] else 'NEIN'}\n"
         f"Trades: {stats['trades']}\n"
         f"Gewinner/Verlierer: {stats['wins']}/{stats['losses']}\n"
         f"LONG/SHORT: {stats['longs']}/{stats['shorts']}\n"
         f"Paper-PnL: {stats['net_pnl_usdt']:.4f} USDT\n"
+        f"Davon {PAPER_NOTIONAL_USDT:.0f}-USDT-Phase: "
+        f"{size_stats.get('trades', 0)} Trades, "
+        f"{size_stats.get('net_pnl_usdt', 0.0):+.4f} USDT\n"
+        "Gesamtwerte enthalten fruehere Positionsgroessen.\n"
         "ECHTGELD: AUS"
     )
 
