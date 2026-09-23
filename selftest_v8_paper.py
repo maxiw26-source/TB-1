@@ -21,6 +21,8 @@ long_setup = {
 position = v8.build_position(long_setup)
 
 assert position["side"] == "LONG"
+assert position["entry"] * position["qty"] == 100.0
+assert position["paper_notional_usdt"] == 100.0
 assert round(position["tp1"], 2) == 102.0
 assert round(position["tp2"], 2) == 102.6
 
