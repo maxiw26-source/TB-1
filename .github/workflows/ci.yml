@@ -27,7 +27,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py backtest_btc_v8_multiblock.py backtest_bnb_v8_multiblock.py backtest_bnb_v8_long_history.py backtest_ada_v8_multiblock.py backtest_ada_v8_long_history.py backtest_ada_v8_profile_compare.py backtest_ada_v8_filter_compare.py backtest_ada_v8_expiry_sweep.py backtest_ada_v8_expiry_walkforward.py backtest_ada_v8_loss_diagnostics.py backtest_ada_v8_targeted_filter.py backtest_ada_v8_fvg_walkforward.py test_v8_new_coins.py test_v8_ada_link.py test_bnb_v8_long_history.py test_ada_v8_long_history.py live_paper_v8_btc.py live_paper_v8_ada.py selftest_v8_ada_paper.py morning_summary.py two_hour_status.py selftest_morning_summary.py selftest_two_hour_status.py selftest_v8.py selftest_v8_paper.py bot_runtime.py telegram_approval.py bitunix_live.py live_partial_tp.py live_auto_mode.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_live_partials.py selftest_auto_live.py selftest_strategy_expansion.py
+          python -m py_compile config.py strategy_v7.py backtest_v7.py backtest_sol_v7.py strategy_breakout_v2.py backtest_breakout_v2.py strategy_breakout_v3.py backtest_breakout_v3.py strategy_v8.py backtest_v8_walkforward.py backtest_btc_v8_multiblock.py backtest_bnb_v8_multiblock.py backtest_bnb_v8_long_history.py backtest_ada_v8_multiblock.py backtest_ada_v8_long_history.py backtest_ada_v8_profile_compare.py backtest_ada_v8_filter_compare.py backtest_ada_v8_expiry_sweep.py backtest_ada_v8_expiry_walkforward.py backtest_ada_v8_loss_diagnostics.py backtest_ada_v8_targeted_filter.py backtest_ada_v8_fvg_walkforward.py strategy_v9.py backtest_v9.py selftest_v9.py test_v8_new_coins.py test_v8_ada_link.py test_bnb_v8_long_history.py test_ada_v8_long_history.py live_paper_v8_btc.py live_paper_v8_ada.py selftest_v8_ada_paper.py morning_summary.py two_hour_status.py selftest_morning_summary.py selftest_two_hour_status.py selftest_v8.py selftest_v8_paper.py bot_runtime.py telegram_approval.py bitunix_live.py live_partial_tp.py live_auto_mode.py live_paper_v7_hardened.py live_preflight.py selftest_v7.py selftest_live_guardrails.py selftest_live_partials.py selftest_auto_live.py selftest_strategy_expansion.py
 
       - name: Core selftest
         run: python selftest_v7.py
@@ -58,3 +58,6 @@ jobs:
 
       - name: Two-hour status selftest
         run: python selftest_two_hour_status.py
+
+      - name: V9 mean-reversion selftest
+        run: python selftest_v9.py
