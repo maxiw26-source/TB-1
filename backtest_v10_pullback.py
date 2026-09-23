@@ -40,6 +40,30 @@ def ema_series(candles, period):
     return result
 
 
+def aggregate_15m(candles_5m):
+    """Build a 15m bar only from all three consecutive, aligned 5m bars."""
+    output = []
+    group = []
+    bucket = None
+    for candle in candles_5m:
+        ts = int(candle["timestamp"])
+        current_bucket = ts - ts % FIFTEEN_MS
+        if current_bucket != bucket:
+            group = []
+            bucket = current_bucket
+        group.append(candle)
+        if len(group) == 3 and [int(c["timestamp"]) for c in group] == [
+            bucket, bucket + CANDLE_MS, bucket + 2 * CANDLE_MS,
+        ]:
+            output.append({"timestamp": bucket,
+                           "open": float(group[0]["open"]),
+                           "high": max(float(c["high"]) for c in group),
+                           "low": min(float(c["low"]) for c in group),
+                           "close": float(group[-1]["close"]),
+                           "volume": sum(float(c.get("volume") or 0) for c in group)})
+    return output
+
+
 def trend_at_5m(candles_5m, candles_15m):
     """Only fully closed 15m bars; gaps and stale data block signals."""
     if not candles_15m:
@@ -64,9 +88,10 @@ def trend_at_5m(candles_5m, candles_15m):
         if closed_at >= times[j] + 2 * FIFTEEN_MS:
             continue
         if adx[j]["adx"] < ADX_MIN:
+            result[i] = "FLAT"  # data ready, but no trend trade is allowed
             continue
         close = float(candles_15m[j]["close"])
-        result[i] = "LONG" if close > ema200[j] else "SHORT" if close < ema200[j] else None
+        result[i] = "LONG" if close > ema200[j] else "SHORT" if close < ema200[j] else "FLAT"
     return result
 
 
@@ -206,10 +231,11 @@ def main():
         print(f"\n{symbol}", flush=True)
         try:
             candles = load_csv(symbol, "5m")
-            higher = load_csv(symbol, "15m")
         except FileNotFoundError as exc:
             print(f"Fehlende Daten: {exc}", flush=True)
             continue
+        higher = aggregate_15m(candles)
+        print("15m-Kerzen aus vollstaendigen 5m-Dreiergruppen gebildet.", flush=True)
         if len(candles) < 500 or len(higher) < 200:
             print("Zu wenige historische Kerzen.", flush=True)
             continue
@@ -231,11 +257,13 @@ def main():
                               ("TEST ", split, end)):
             indexes = [i for i, c in enumerate(candles) if lo <= c["timestamp"] <= hi]
             valid = sum(trend[i] is not None for i in indexes)
+            trending = sum(trend[i] in ("LONG", "SHORT") for i in indexes)
             setups = sum(setup_side(candles, i, e20, e50, values, trend) is not None
                          for i in indexes)
             share = valid / len(indexes) * 100 if indexes else 0.0
-            print(f"{label} Daten: {len(indexes)} 5m-Kerzen, {share:.1f}% mit "
-                  f"gueltigem 15m-Trend, {setups} Roheinstiege", flush=True)
+            print(f"{label} Daten: {len(indexes)} 5m-Kerzen, {share:.1f}% "
+                  f"15m-Indikatorabdeckung, {trending} Kerzen mit ADX-Trend, "
+                  f"{setups} Roheinstiege", flush=True)
             if share < 90.0:
                 print(f"{label} unvollstaendige Indikatorabdeckung; kein Ergebnis.", flush=True)
                 continue
