@@ -13,7 +13,8 @@ from pathlib import Path
 from backtest_v8_walkforward import load_csv
 from backtest_v9 import (
     CANDLE_MS, LEVERAGE, MAX_MARGIN_PCT, RISK_PCT, SLIPPAGE_PCT,
-    START_BALANCE, TAKER_FEE_PCT, close_position, print_result, write_trades,
+    START_BALANCE, TAKER_FEE_PCT, close_position, print_result, timestamp_text,
+    write_trades,
 )
 from strategy_v9 import indicators
 
@@ -199,6 +200,7 @@ def main():
     print("V10 TREND-PULLBACK – NUR BACKTEST, KEINE ORDERS", flush=True)
     print("15m EMA200 + ADX14 >= 20; 5m EMA20-Rueckkehr/EMA50; SL 1.5 ATR, TP 2R.", flush=True)
     print("Taker-Gebuehren und Slippage enthalten; Funding/Fills nicht modelliert.", flush=True)
+    print("Historische TEST-Fenster wurden in frueheren Strategietests bereits betrachtet.", flush=True)
     day = 86_400_000
     for symbol in [s.upper() for s in args.symbols]:
         print(f"\n{symbol}", flush=True)
@@ -214,15 +216,29 @@ def main():
         end = int(candles[-1]["timestamp"])
         split = end - args.test_days * day
         start = split - args.train_days * day
-        if (int(candles[0]["timestamp"]) > start - 5 * day
-                or int(higher[0]["timestamp"]) > start - 5 * day):
-            print("Zu wenig Historie fuer Train + 5 Tage Warmup.", flush=True)
+        print("5m:", timestamp_text(candles[0]["timestamp"]), "bis",
+              timestamp_text(candles[-1]["timestamp"]), flush=True)
+        print("15m:", timestamp_text(higher[0]["timestamp"]), "bis",
+              timestamp_text(higher[-1]["timestamp"]), flush=True)
+        if (int(candles[0]["timestamp"]) > start
+                or int(higher[0]["timestamp"]) > start):
+            print("Historische Daten beginnen nach dem Train-Start; uebersprungen.", flush=True)
             continue
         values = indicators(candles)
         e20, e50 = ema_series(candles, 20), ema_series(candles, 50)
         trend = trend_at_5m(candles, higher)
         for label, lo, hi in (("TRAIN", start, split - CANDLE_MS),
                               ("TEST ", split, end)):
+            indexes = [i for i, c in enumerate(candles) if lo <= c["timestamp"] <= hi]
+            valid = sum(trend[i] is not None for i in indexes)
+            setups = sum(setup_side(candles, i, e20, e50, values, trend) is not None
+                         for i in indexes)
+            share = valid / len(indexes) * 100 if indexes else 0.0
+            print(f"{label} Daten: {len(indexes)} 5m-Kerzen, {share:.1f}% mit "
+                  f"gueltigem 15m-Trend, {setups} Roheinstiege", flush=True)
+            if share < 90.0:
+                print(f"{label} unvollstaendige Indikatorabdeckung; kein Ergebnis.", flush=True)
+                continue
             result = run_window(candles, values, e20, e50, trend, lo, hi)
             print_result(label, result)
             write_trades(Path("v10_results") / f"{symbol}_{label.strip().lower()}.csv", result)
