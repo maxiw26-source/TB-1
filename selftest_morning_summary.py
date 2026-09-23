@@ -50,15 +50,26 @@ def main():
     ), patch.object(
         summary,
         "v8_summary",
-        return_value={
-            "entries": 1,
-            "tp1": 1,
-            "closed": 1,
-            "net": summary.Decimal("0.12"),
-            "wins": 1,
-            "losses": 0,
-            "position_open": False,
-        },
+        side_effect=[
+            {
+                "entries": 1,
+                "tp1": 1,
+                "closed": 1,
+                "net": summary.Decimal("0.12"),
+                "wins": 1,
+                "losses": 0,
+                "position_open": False,
+            },
+            {
+                "entries": 3,
+                "tp1": 2,
+                "closed": 2,
+                "net": summary.Decimal("0.34"),
+                "wins": 1,
+                "losses": 1,
+                "position_open": True,
+            },
+        ],
     ), patch.object(
         summary,
         "auto_live_status",
@@ -74,6 +85,11 @@ def main():
     assert "Gebühren: 0.0600 USDT" in message
     assert "Netto: +0.3200 USDT" in message
     assert "V8 BTC BALANCED PAPER" in message
+    assert "V8 ADA EXPIRY2 + FVG015 PAPER" in message
+    assert "Entries: 3" in message
+    assert "Trefferquote: 50.0%" in message
+    assert "Paper-Netto: +0.3400 USDT" in message
+    assert "Paper-Position offen: JA" in message
 
     print("MORGENBERICHT SELFTEST ERFOLGREICH")
     print("Keine echte Order wurde gesendet.")

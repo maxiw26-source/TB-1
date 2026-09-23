@@ -20,6 +20,8 @@ TZ = ZoneInfo("Europe/Vienna")
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 V8_EVENT_FILE = Path("v8_paper_events.jsonl")
 V8_STATE_FILE = Path("v8_paper_state.json")
+ADA_EVENT_FILE = Path("v8_ada_paper_events.jsonl")
+ADA_STATE_FILE = Path("v8_ada_paper_state.json")
 
 
 def load_env_file(path=".env"):
@@ -261,6 +263,11 @@ def build_message(now=None):
 
     live = live_summary(start, end)
     v8 = v8_summary(start, end)
+    ada = v8_summary(
+        start, end,
+        event_file=ADA_EVENT_FILE,
+        state_file=ADA_STATE_FILE,
+    )
     auto = auto_live_status()
 
     lines = [
@@ -320,6 +327,24 @@ def build_message(now=None):
             (
                 "Paper-Position offen: "
                 + ("JA" if v8["position_open"] else "NEIN")
+            ),
+            "",
+            "V8 ADA EXPIRY2 + FVG015 PAPER",
+            f"Entries: {ada['entries']}",
+            f"TP1 erreicht: {ada['tp1']}",
+            f"Geschlossene Trades: {ada['closed']}",
+            f"Gewinner/Verlierer: {ada['wins']}/{ada['losses']}",
+            (
+                "Trefferquote: "
+                + (
+                    f"{100.0 * ada['wins'] / ada['closed']:.1f}%"
+                    if ada["closed"] else "– (noch keine Trades)"
+                )
+            ),
+            f"Paper-Netto: {fmt_money(ada['net'])}",
+            (
+                "Paper-Position offen: "
+                + ("JA" if ada["position_open"] else "NEIN")
             ),
         ]
     )
