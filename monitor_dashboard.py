@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent
 PAGE = ROOT / "monitor_dashboard.html"
 SERVICES = (
+    ("v20_ada", "V20 · ADA Support / Resistance", "lsob-v20-ada-paper", "paper", "v20_ada_paper_state.json"),
     ("v7", "V7 · BTC / ETH", "lsob-v7", "real", "runtime_state.json"),
     ("v8_btc", "V8 · BTC Balanced", "lsob-v8-paper", "paper", "v8_paper_state.json"),
     ("v8_ada", "V8 · ADA Expiry", "lsob-v8-ada-paper", "paper", "v8_ada_paper_state.json"),
@@ -106,8 +107,8 @@ def position_view(position):
 def paper_view(payload, version):
     stats = payload.get("stats") or {}
     position = payload.get("position")
-    pending = payload.get("pending") if version != "v12_ada" else None
-    stamp = payload.get("last_closed_ts" if version == "v12_ada"
+    pending = payload.get("pending") if version not in ("v12_ada", "v20_ada") else None
+    stamp = payload.get("last_closed_ts" if version in ("v12_ada", "v20_ada")
                         else "last_closed_candle")
     try:
         candle_at = iso(int(stamp) / 1000) if stamp else None
@@ -120,16 +121,26 @@ def paper_view(payload, version):
         "trades": int(stats.get("trades") or 0),
         "wins": int(stats.get("wins") or 0),
         "losses": int(stats.get("losses") or 0),
-        "pnl": number(stats.get("net_usdt") if version == "v12_ada" else stats.get("net_pnl_usdt")),
+        "pnl": number(stats.get("net_usdt") if version in ("v12_ada", "v20_ada") else stats.get("net_pnl_usdt")),
         "candle_at": candle_at,
     }
-    if version == "v12_ada":
+    if version in ("v12_ada", "v20_ada"):
         report["fees"] = number(stats.get("fees_usdt"))
         report["funding_assumed"] = number(stats.get("funding_assumed_usdt"))
     else:
         phase = (payload.get("stats_by_notional") or {}).get("100.00") or {}
         report["phase_100_pnl"] = number(phase.get("net_pnl_usdt"))
         report["phase_100_trades"] = int(phase.get("trades") or 0)
+    if version == "v20_ada":
+        report["stage"] = payload.get("stage") or report["stage"]
+        report["error"] = payload.get("error")
+        report["notional"] = number(payload.get("notional_usdt"))
+        report["unrealized_gross"] = number(payload.get("unrealized_gross"))
+        report["halted"] = bool(payload.get("halted"))
+        stamp = payload.get("last_closed_ts")
+        if not stamp or time.time() - (int(stamp) + 300000) / 1000 > 600:
+            report["error"] = report["error"] or "Keine aktuellen 5m-Marktdaten"
+            report["stage"] = "Marktdaten veraltet"
     return report
 
 
