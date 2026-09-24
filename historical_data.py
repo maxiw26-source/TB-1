@@ -150,8 +150,11 @@ def download(
         result = request_klines(
             symbol,
             interval,
-            current_start,
-            block_end,
+            # Bitunix returns bars strictly AFTER startTime and strictly
+            # BEFORE endTime; pad both sides by one interval to include
+            # every candle in the intended [current_start, block_end].
+            current_start - interval_ms,
+            block_end + interval_ms,
         )
 
         if result.get("code") != 0:
