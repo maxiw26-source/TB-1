@@ -16,11 +16,13 @@ VARIANTS = [
     ('Retestzone_0.40ATR', 48, 6, .40),
 ]
 
+ZONE_VARIANTS = [('Original', 48, 6, .25), ('Niveaus_24h', 24, 6, .25), ('Niveaus_12h', 12, 6, .25)]
+
 def signals(hour, channel=48, retest_hours=6, zone=.25):
     out, pending = {}, None
-    for i in range(channel, len(hour)):
+    for i in range(max(channel, 15), len(hour)):
         c = hour[i]
-        history = hour[i-channel:i+1]
+        history = hour[i-max(channel, 15):i+1]
         if any(b['timestamp']-a['timestamp'] != HOUR_MS for a,b in zip(history,history[1:])):
             pending = None
             continue
@@ -75,16 +77,20 @@ def selftest():
         hour.append(dict(timestamp=i*HOUR_MS,open=op,close=price,
                          high=max(op,price)+rng.random(),low=min(op,price)-rng.random(),volume=1))
     assert signals(hour)==base.signals(hour), 'Baseline differs'
-    for name,ch,r,z in VARIANTS:
+    for name,ch,r,z in VARIANTS + ZONE_VARIANTS:
         early=signals(hour[:1000],ch,r,z)
         full=signals(hour,ch,r,z)
         assert early=={k:v for k,v in full.items() if k<=1000*HOUR_MS},name
+    for cut in (16, 20, 30, 50):
+        early = signals(hour[:cut], 12)
+        assert early == {k:v for k,v in signals(hour, 12).items() if k <= cut*HOUR_MS}
     print('VERGLEICH SELFTEST OK: Original identisch; alle Varianten zeitlich kausal')
 
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--selftest',action='store_true')
+    parser.add_argument('--zones', action='store_true', help='Vergleiche nur 48h, 24h und 12h Niveaus')
     args=parser.parse_args()
     if args.selftest:
         selftest();return
@@ -103,7 +109,7 @@ def main():
     if covered<.95 or not hour or hour[0]['timestamp']>start-49*HOUR_MS:
         raise ValueError('TRAIN-Abdeckung oder Warmup unzureichend')
     rows=[]
-    for name,ch,r,z in VARIANTS:
+    for name,ch,r,z in (ZONE_VARIANTS if args.zones else VARIANTS):
         setup=signals(hour,ch,r,z)
         result=base.simulate(train,setup,start,split)
         if 'invalid' in result:
@@ -117,7 +123,7 @@ def main():
         rows.append(dict(variant=name,**m,block1=blocks[0],block2=blocks[1],block3=blocks[2]))
     if rows:
         folder=Path('v20_filter_results');folder.mkdir(exist_ok=True)
-        with (folder/'ADAUSDT_train_comparison.csv').open('w',newline='') as f:
+        with (folder/('ADAUSDT_train_zones.csv' if args.zones else 'ADAUSDT_train_comparison.csv')).open('w',newline='') as f:
             writer=csv.DictWriter(f,fieldnames=list(rows[0]));writer.writeheader();writer.writerows(rows)
     print('FERTIG. TRAIN-Vergleich ist Entwicklung, kein unabhaengiger Profitabilitaetsnachweis. Keine Orders.',flush=True)
 
