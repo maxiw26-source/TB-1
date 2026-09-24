@@ -16,6 +16,7 @@ from pathlib import Path
 from historical_data import REQUEST_DELAY_SECONDS, normalize, request_klines
 
 STEP = 300_000
+DAY_MS = 86_400_000
 LIMIT = 200
 FIELDS = ("timestamp", "datetime", "open", "high", "low", "close", "volume")
 
@@ -91,19 +92,22 @@ def atomic_save(path, rows):
             temp_path.unlink()
 
 
-def repair(symbol, max_requests):
+def repair(symbol, max_requests, days=300):
     path = Path("historical_data") / f"{symbol}_5m.csv"
     if not path.exists():
         print(symbol, "Datei fehlt:", path, flush=True)
         return
     rows = read_rows(path)
-    missing = missing_times(sorted(rows))
+    all_missing = missing_times(sorted(rows))
+    latest = max(rows)
+    missing = [ts for ts in all_missing if ts >= latest - days * DAY_MS]
     if not missing:
-        print(symbol, "keine internen Luecken", flush=True)
+        print(symbol, "keine internen Luecken in den letzten", days,
+              "Tagen", flush=True)
         return
     chunks = list(batches(missing))
-    print(symbol, "fehlende 5m-Kerzen:", len(missing), "| API-Fenster:",
-          len(chunks), flush=True)
+    print(symbol, "fehlende 5m-Kerzen im Fenster:", len(missing),
+          "| insgesamt:", len(all_missing), "| API-Fenster:", len(chunks), flush=True)
     added = 0
     for number, (start, end) in enumerate(chunks[:max_requests], 1):
         expected = set(range(start, end + STEP, STEP)) - rows.keys()
@@ -130,8 +134,9 @@ def repair(symbol, max_requests):
         time.sleep(REQUEST_DELAY_SECONDS)
     if added:
         atomic_save(path, rows)
-    left = len(missing_times(sorted(rows)))
-    print(symbol, "ergänzt:", added, "| weiterhin fehlend:", left, flush=True)
+    left = sum(ts >= latest - days * DAY_MS for ts in missing_times(sorted(rows)))
+    print(symbol, "ergänzt:", added, "| im gewaehlten Fenster fehlend:", left,
+          flush=True)
     if left:
         print("Erneut ausfuehren, falls API und Historie die Luecken anbieten.", flush=True)
 
@@ -140,11 +145,15 @@ def main():
     parser = argparse.ArgumentParser(description="Repair internal 5m gaps only")
     parser.add_argument("--symbols", nargs="+", default=["ETHUSDT", "ADAUSDT"])
     parser.add_argument("--max-requests", type=int, default=150)
+    parser.add_argument("--days", type=int, default=300,
+                        help="Nur interne Luecken der letzten N Tage (Standard: 300)")
     args = parser.parse_args()
     if not 1 <= args.max_requests <= 500:
         parser.error("--max-requests must be between 1 and 500")
+    if args.days < 1:
+        parser.error("--days must be >= 1")
     for symbol in (s.upper() for s in args.symbols):
-        repair(symbol, args.max_requests)
+        repair(symbol, args.max_requests, args.days)
     print("FERTIG – vorhandene OHLCV-Kerzen wurden nicht ersetzt.", flush=True)
 
 
