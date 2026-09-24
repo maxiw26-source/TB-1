@@ -5,6 +5,7 @@ Only binds to loopback. No order endpoints, credentials, or raw state payloads.
 import argparse
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -75,6 +76,23 @@ def v7_last_log():
         return int(row["__REALTIME_TIMESTAMP"]) / 1_000_000
     except (OSError, ValueError, IndexError, KeyError, subprocess.TimeoutExpired):
         return None
+
+
+def v7_signal_reasons():
+    try:
+        result = subprocess.run(
+            ["journalctl", "-u", "lsob-v7", "--since=-10min", "-n", "80",
+             "--output=cat", "--no-pager"],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+        reasons = {}
+        for line in result.stdout.splitlines():
+            match = re.search(r"\b(BTCUSDT|ETHUSDT) Signal: (.*?) \| (.*)$", line)
+            if match:
+                reasons[match.group(1)] = (match.group(3).strip() or match.group(2).strip())[:100]
+        return reasons
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
 
 
 def position_view(position):
@@ -173,6 +191,7 @@ def collect():
     bots = []
     now = time.time()
     v7_log = v7_last_log()
+    v7_reasons = v7_signal_reasons()
     for key, label, service, mode, filename in SERVICES:
         payload, mtime, error = read_state(filename)
         service_state = states.get(service, "unbekannt")
@@ -182,6 +201,8 @@ def collect():
         age = round(now - heartbeat) if heartbeat else None
         fresh = age is not None and 0 <= age <= max_age
         data = (v7_view(payload) if key == "v7" else paper_view(payload, key)) if payload else {}
+        if key == "v7":
+            data["signal_reasons"] = v7_reasons
         if service_state != "active":
             data["stage"] = "Dienst aus" if service_state == "inactive" else "Dienst prüfen"
         elif not fresh:
