@@ -195,7 +195,9 @@ def collect():
     for key, label, service, mode, filename in SERVICES:
         payload, mtime, error = read_state(filename)
         service_state = states.get(service, "unbekannt")
-        max_age = 900 if key == "v12_ada" else 180
+        # V12 writes once per completed hour; allow 15 minutes after the
+        # following close before reporting an actual missed update.
+        max_age = 75 * 60 if key == "v12_ada" else 180
         heartbeat = max((ts for ts in (mtime, v7_log if key == "v7" else None)
                          if ts is not None), default=None)
         age = round(now - heartbeat) if heartbeat else None
