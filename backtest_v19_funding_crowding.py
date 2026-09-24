@@ -32,24 +32,45 @@ WINDOW_MS = 7 * DAY_MS
 
 
 def get_rates(start, end):
-    """Fetch in bounded windows; reject partial pagination and API errors."""
+    """Fetch bounded windows; verify timestamps before accepting a page."""
     rates = {}
     requests = 0
-    for lo in range(start, end + 1, WINDOW_MS):
-        hi = min(end, lo + WINDOW_MS - 1)
-        params = {"symbol": SYMBOL, "starTime": lo, "endTime": hi, "limit": 200}
+    def page(lo, hi, start_key):
+        nonlocal requests
+        params = {"symbol": SYMBOL, start_key: lo, "endTime": hi, "limit": 200}
         request = urllib.request.Request(API + "?" + urllib.parse.urlencode(params),
-                                         headers={"Accept": "application/json", "User-Agent": "TB-1-research/1"})
+                                         headers={"Accept": "application/json", "User-Agent": "TB-1-research/2"})
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
                 body = json.load(response)
         except (OSError, ValueError) as exc:
             raise RuntimeError(f"Funding-API nicht erreichbar: {exc}") from exc
+        requests += 1
         if not isinstance(body, dict) or body.get("code") != 0 or not isinstance(body.get("data"), list):
             raise RuntimeError(f"Funding-API Fehler im Fenster {timestamp_text(lo)}: {str(body)[:200]}")
-        items = body["data"]
+        time.sleep(.12)
+        return body["data"]
+
+    def fetch_window(lo, hi):
+        # Published documentation spells this field 'starTime'; some APIs use
+        # 'startTime'. Never silently accept a page outside the requested span.
+        items = page(lo, hi, "starTime")
+        if items and any(not lo <= int(item["fundingTime"]) <= hi for item in items):
+            items = page(lo, hi, "startTime")
+            if items and any(not lo <= int(item["fundingTime"]) <= hi for item in items):
+                actual = sorted(int(item["fundingTime"]) for item in items)
+                raise RuntimeError("Funding-API ignoriert Zeitfenster: gewuenscht "
+                                   f"{timestamp_text(lo)} bis {timestamp_text(hi)}, "
+                                   f"geliefert {timestamp_text(actual[0])} bis "
+                                   f"{timestamp_text(actual[-1])}; kein Ergebnis")
         if len(items) >= 200:
-            raise RuntimeError("200 Funding-Eintraege im 7-Tage-Fenster: Pagination unklar; kein Ergebnis")
+            if hi - lo <= DAY_MS:
+                raise RuntimeError("Funding-API liefert >=200 Eintraege an einem Tag; "
+                                   "keine gesicherte Pagination, kein Ergebnis")
+            mid = (lo + hi) // 2
+            fetch_window(lo, mid)
+            fetch_window(mid + 1, hi)
+            return
         for item in items:
             ts = int(item["fundingTime"])
             rate = float(item["fundingRate"])
@@ -57,8 +78,8 @@ def get_rates(start, end):
                 if ts in rates and rates[ts] != rate:
                     raise RuntimeError("Widerspruechliche Funding-Werte")
                 rates[ts] = rate
-        requests += 1
-        time.sleep(.12)
+    for lo in range(start, end + 1, WINDOW_MS):
+        fetch_window(lo, min(end, lo + WINDOW_MS - 1))
     return dict(sorted(rates.items())), requests
 
 
