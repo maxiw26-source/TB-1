@@ -1,0 +1,14 @@
+[Unit]
+Description=LSOB V12 ADA hourly trend paper monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/live_paper_v12_ada.py run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
