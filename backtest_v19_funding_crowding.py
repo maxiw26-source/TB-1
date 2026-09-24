@@ -160,6 +160,44 @@ def evaluate(bars, rates, start, end):
             "funding": sum(t["funding"] for t in trades), "reasons": reasons}
 
 
+def diagnose_train(bars, rates, start, end):
+    """Describe signal scarcity using TRAIN only; never retune on TEST."""
+    times = list(rates)
+    summary = Counter()
+    averages = []
+    for event in times:
+        entry_ts = (event // HOUR_MS + 1) * HOUR_MS
+        if not start <= entry_ts < end:
+            continue
+        past = [rates[t] for t in times if event - DAY_MS < t <= event]
+        if len(past) < 2:
+            continue
+        prev = bars.get(entry_ts - HOUR_MS)
+        prior = bars.get(entry_ts - 25 * HOUR_MS)
+        if not prev or not prior:
+            continue
+        summary["events_with_history"] += 1
+        average = sum(past[-3:]) / min(len(past), 3)
+        averages.append(average)
+        move = prev["close"] / prior["close"] - 1
+        if average >= FUNDING_THRESHOLD:
+            summary["positive_funding_extreme"] += 1
+            if move >= MIN_MOVE:
+                summary["short_intersection"] += 1
+        if average <= -FUNDING_THRESHOLD:
+            summary["negative_funding_extreme"] += 1
+            if move <= -MIN_MOVE:
+                summary["long_intersection"] += 1
+        if move >= MIN_MOVE:
+            summary["price_up_1pct"] += 1
+        if move <= -MIN_MOVE:
+            summary["price_down_1pct"] += 1
+    if averages:
+        print("TRAIN Diagnose: " + " | ".join(f"{key}={value}" for key, value in summary.items())
+              + f" | 3-Settlement-Funding min={min(averages):+.5%} "
+              f"max={max(averages):+.5%} (Grenze +/-{FUNDING_THRESHOLD:.2%})", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="V19 Funding-Extrem, historisch, keine Orders")
     parser.add_argument("--train-days", type=int, default=180)
@@ -194,6 +232,8 @@ def main():
             if price_coverage < .95 or rate_days < n_days * .9:
                 print("KEIN ERGEBNIS: Kurs- oder Funding-Historie unvollstaendig.", flush=True)
                 continue
+            if label == "TRAIN":
+                diagnose_train(bars, rates, lo, hi)
             result = evaluate(bars, rates, lo, hi)
             if "invalid" in result:
                 print("KEIN ERGEBNIS:", result["invalid"], flush=True)
