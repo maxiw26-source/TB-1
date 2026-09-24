@@ -1,5 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
@@ -121,6 +123,25 @@ def main():
     assert "Trades gesamt: 4" in message
     assert "Trefferquote gesamt: 75.0%" in message
     assert "Gesamt-Netto: +0.4000 USDT" in message
+
+    with TemporaryDirectory() as folder:
+        events = Path(folder) / "events.jsonl"
+        state_file = Path(folder) / "state.json"
+        events.write_text(
+            '{"ts": 1789977600, "event": "ENTRY", "details": {}}\n'
+            '{"ts": 1789977600, "event": "EXIT", "details": {"net": 0.12}}\n',
+            encoding="utf-8",
+        )
+        state_file.write_text('{"position": null}', encoding="utf-8")
+        with patch.object(status, "V12_EVENT_FILE", events), patch.object(
+            status, "V12_STATE_FILE", state_file
+        ):
+            result = status.v12_summary(
+                datetime(2026, 9, 21, 0, 0, tzinfo=TZ),
+                datetime(2026, 9, 22, 0, 0, tzinfo=TZ),
+            )
+        assert result["enabled"] and result["entries"] == 1
+        assert result["closed"] == 1 and result["net"] == Decimal("0.12")
 
     print("2-STUNDEN-UPDATE SELFTEST ERFOLGREICH")
     print("Keine echte Order wurde gesendet.")
