@@ -1,0 +1,18 @@
+[Unit]
+Description=LSOB read-only local bot dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/TB-1
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/monitor_dashboard.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
