@@ -108,7 +108,8 @@ def repair(symbol, max_requests):
     for number, (start, end) in enumerate(chunks[:max_requests], 1):
         expected = set(range(start, end + STEP, STEP)) - rows.keys()
         try:
-            response = request_klines(symbol, "5m", start, end)
+            # Bitunix treats startTime/endTime as exclusive boundaries.
+            response = request_klines(symbol, "5m", start - STEP, end + STEP)
         except (OSError, RuntimeError, TimeoutError) as exc:
             print("Download unterbrochen bei Fenster", number, str(exc), flush=True)
             break
