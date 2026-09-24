@@ -4,6 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import historical_data
 import repair_history_gaps as tool
 
 
@@ -29,7 +30,7 @@ def main():
                 tool.REQUEST_DELAY_SECONDS = 0
                 def fake_api(symbol, interval, start, end):
                     assert (symbol, interval, start, end) == (
-                        "TEST", "5m", 300_000, 900_000)
+                        "TEST", "5m", 0, 1_200_000)
                     return {"code": 0, "data": [
                         {"time": ts, "open": "100", "high": "101",
                          "low": "99", "close": "100", "baseVol": "10"}
@@ -44,6 +45,29 @@ def main():
             assert rows[600_000]["close"] == "100"
             assert tool.missing_times(sorted(rows)) == []
             assert path.with_name(path.name + ".before-gap-repair.bak").read_bytes() == original
+
+            # Original downloader must also include both ends of each page.
+            saved_request = historical_data.request_klines
+            saved_limit = historical_data.REQUEST_LIMIT
+            saved_delay = historical_data.REQUEST_DELAY_SECONDS
+            try:
+                historical_data.REQUEST_LIMIT = 2
+                historical_data.REQUEST_DELAY_SECONDS = 0
+                def exclusive_api(symbol, interval, start, end):
+                    return {"code": 0, "data": [
+                        {"time": ts, "open": "100", "high": "101",
+                         "low": "99", "close": "100", "baseVol": "10"}
+                        for ts in range(900_000, 1_800_001, 300_000)
+                        if start < ts < end][:2]}
+                historical_data.request_klines = exclusive_api
+                downloaded = historical_data.download(
+                    "TEST", "5m", 900_000, 1_800_000)
+                assert [c["timestamp"] for c in downloaded] == [
+                    900_000, 1_200_000, 1_500_000, 1_800_000]
+            finally:
+                historical_data.request_klines = saved_request
+                historical_data.REQUEST_LIMIT = saved_limit
+                historical_data.REQUEST_DELAY_SECONDS = saved_delay
         finally:
             os.chdir(old)
     print("GAP-REPAIR SELFTEST ERFOLGREICH: nur fehlende Kerzen, Backup, atomisch")
