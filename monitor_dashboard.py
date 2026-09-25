@@ -23,6 +23,8 @@ SERVICES = (
     ("v7", "V7 · BTC / ETH", "lsob-v7", "real", "runtime_state.json"),
     ("v8_btc", "V8 · BTC Balanced", "lsob-v8-paper", "paper", "v8_paper_state.json"),
     ("v8_ada", "V8 · ADA Expiry", "lsob-v8-ada-paper", "paper", "v8_ada_paper_state.json"),
+    ("v8_btc_be", "V8 · BTC 2R + Break-even Test", "lsob-v8-be-paper@BTC", "paper", "v8_btc_be_paper_state.json"),
+    ("v8_ada_be", "V8 · ADA 2R + Break-even Test", "lsob-v8-be-paper@ADA", "paper", "v8_ada_be_paper_state.json"),
     ("v12_ada", "V12 · ADA 1H Trend", "lsob-v12-ada-paper", "paper", "v12_ada_paper_state.json"),
 )
 LIVE_CACHE = {"at": 0, "loading": False, "value": None}
@@ -100,7 +102,7 @@ def v7_signal_reasons():
 def position_view(position):
     if not isinstance(position, dict):
         return None
-    if position.get("exit_policy") == "full_2r_v1":
+    if position.get("exit_policy") in ("full_2r_v1", "full_2r_be1r_v1"):
         position = dict(position, target=position.get("tp2"))
         position.pop("tp1", None)
     return {key: (str(position[key]) if key == "side" else number(position[key]))
@@ -139,6 +141,11 @@ def paper_view(payload, version):
         report["phase_2r"] = payload.get("stats_by_exit_policy", {}).get("full_2r_v1", {})
         report["exit_rule"] = "Neue Trades: 1:2 vor Kosten · kein Teilverkauf"
         report["legacy_position"] = bool(position and position.get("exit_policy") != "full_2r_v1")
+    if version in ("v8_btc_be", "v8_ada_be"):
+        report["experiment"] = True
+        report["phase_2r"] = payload.get("stats_by_exit_policy", {}).get("full_2r_be1r_v1", {})
+        report["exit_rule"] = "2R · BE ab +1R am Kerzenschluss, sobald Kosten gedeckt · Puffer 0,01 USDT · Funding-Annahme 0"
+        report["be_status"] = "Kostendeckender Stop aktiv" if position and position.get("be_armed") else "BE noch nicht aktiv"
     if version == "v20_ada":
         report["stage"] = payload.get("stage") or report["stage"]
         report["error"] = payload.get("error")

@@ -5,9 +5,9 @@ import json
 import math
 from datetime import datetime, timezone
 
-FILES = {'v8_btc':'v8_paper_events.jsonl','v8_ada':'v8_ada_paper_events.jsonl',
+FILES = {'v8_btc_be':'v8_btc_be_paper_events.jsonl', 'v8_ada_be':'v8_ada_be_paper_events.jsonl','v8_btc':'v8_paper_events.jsonl','v8_ada':'v8_ada_paper_events.jsonl',
          'v12_ada':'v12_ada_paper_events.jsonl','v20_ada':'v20_ada_paper_events.jsonl'}
-REASONS = {'STOP':'Stop erreicht','TP2':'Gewinnziel erreicht','TARGET':'Gewinnziel erreicht',
+REASONS = {'BE_STOP':'Kostendeckender Break-even-Stop erreicht','STOP':'Stop erreicht','TP2':'Gewinnziel erreicht','TARGET':'Gewinnziel erreicht',
            'TP':'Gewinnziel erreicht','STOP_TICK':'Stop bei Kursabfrage erreicht',
            'TARGET_TICK':'Gewinnziel bei Kursabfrage erreicht','TIME':'Maximale Haltedauer',
            'TIME_TICK':'Maximale Haltedauer'}
@@ -46,7 +46,7 @@ def trade(d,entry=None,ts=None):
     if costs is None and num(d.get('entry_fee')) is not None and num(d.get('exit_fee')) is not None:
         costs=num(d['entry_fee'])+num(d['exit_fee'])
     return dict(side=str(d.get('side',p.get('side','—')))[:12],entry=e,exit=num(d.get('exit')),
-        stop=stop,target=target,rr=rr,rr_note='70 % TP1 / 30 % TP2' if legacy else 'Vollständiges Ziel' if rr is not None else 'Nicht protokolliert',
+        stop=stop,target=target,rr=rr,rr_note='2R-Ziel; BE ab +1R am Kerzenschluss, wenn Kosten gedeckt' if policy == 'full_2r_be1r_v1' else '70 % TP1 / 30 % TP2' if legacy else 'Vollständiges Ziel' if rr is not None else 'Nicht protokolliert',
         net=net,fees=costs,slippage=num(d.get('slippage')),
         funding=num(d.get('funding_assumed_usdt',d.get('funding_assumed'))),
         realized_r=net/(risk*qty) if net is not None and risk and qty else None,
