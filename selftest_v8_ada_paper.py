@@ -21,7 +21,7 @@ assert ada.PAPER_SYMBOL == "ADAUSDT"
 assert paper.SYMBOL == "ADAUSDT"
 assert paper.PROFILE["setup_expiry_candles"] == 2
 assert paper.PROFILE["tp1_r"] == 1.0
-assert paper.PROFILE["tp2_r"] == 1.3
+assert paper.PROFILE["tp2_r"] == 2.0
 assert paper.STATE_FILE.name == "v8_ada_paper_state.json"
 assert paper.EVENT_FILE.name == "v8_ada_paper_events.jsonl"
 assert ada.passes_filter(signal("LONG", 0.15)) is True

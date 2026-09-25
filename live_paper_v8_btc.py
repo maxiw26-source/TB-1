@@ -30,11 +30,12 @@ PROFILE = {
     "stop_buffer_atr": 0.10,
     "adx_minimum": 18.0,
     "tp1_r": 1.0,
-    "tp2_r": 1.3,
+    "tp2_r": 2.0,
 }
 
 PAPER_NOTIONAL_USDT = 100.0
-TP1_CLOSE_PERCENT = 70.0
+EXIT_POLICY = "full_2r_v1"
+TP1_CLOSE_PERCENT = 70.0  # Legacy saved positions only.
 MAKER_FEE_PERCENT = float(getattr(config, "MAKER_FEE_PERCENT", 0.02))
 TAKER_FEE_PERCENT = float(getattr(config, "TAKER_FEE_PERCENT", 0.06))
 TAKER_SLIPPAGE_PERCENT = float(getattr(config, "TAKER_SLIPPAGE_PERCENT", 0.02))
@@ -247,6 +248,8 @@ def build_position(setup):
 
     return {
         "side": side,
+        "exit_policy": EXIT_POLICY,
+        "initial_stop": stop,
         "entry": entry,
         "paper_notional_usdt": PAPER_NOTIONAL_USDT,
         "stop": stop,
@@ -293,6 +296,18 @@ def close_part(position, price, qty, reason):
 def check_position(position, candle):
     high = float(candle["high"])
     low = float(candle["low"])
+
+    if position.get("exit_policy") == EXIT_POLICY:
+        is_long = position["side"] == "LONG"
+        stop_hit = low <= position["stop"] if is_long else high >= position["stop"]
+        target_hit = high >= position["tp2"] if is_long else low <= position["tp2"]
+        # Conservative ordering when both barriers occur in one candle.
+        if stop_hit or target_hit:
+            reason = "STOP" if stop_hit else "TP2"
+            price = position["stop"] if stop_hit else position["tp2"]
+            close_part(position, price, position["remaining"], reason)
+            return reason
+        return None
 
     if position["side"] == "LONG":
         if low <= float(position["stop"]):
@@ -391,6 +406,14 @@ def close_trade(state, reason):
     size_stats["trades"] += 1
     size_stats["net_pnl_usdt"] += net
 
+    policy = position.get("exit_policy", "legacy_partial")
+    policy_stats = state.setdefault("stats_by_exit_policy", {}).setdefault(
+        policy, {"trades": 0, "wins": 0, "losses": 0, "net_pnl_usdt": 0.0}
+    )
+    policy_stats["trades"] += 1
+    policy_stats["wins" if net > 0 else "losses"] += 1
+    policy_stats["net_pnl_usdt"] += net
+
     if position["side"] == "LONG":
         stats["longs"] += 1
     else:
@@ -404,6 +427,7 @@ def close_trade(state, reason):
     details = {
         "side": position["side"],
         "reason": reason,
+        "exit_policy": policy,
         "paper_notional_usdt": notional,
         "net_pnl_usdt": net,
         "entry": position["entry"],
@@ -494,7 +518,7 @@ def process_candle(state, candle):
                     f"Seite: {position['side']}\n"
                     f"Entry: {position['entry']:.2f}\n"
                     f"Stop: {position['stop']:.2f}\n"
-                    f"TP1: {position['tp1']:.2f}\n"
+                    "Ausstieg: komplett bei 2R, kein Teilverkauf.\n"
                     f"TP2: {position['tp2']:.2f}\n"
                     f"Paper-Notional: {PAPER_NOTIONAL_USDT:.2f} USDT\n"
                     "KEINE echte Order."
@@ -562,9 +586,14 @@ def status_text(state):
         f"{PAPER_NOTIONAL_USDT:.2f}", {}
     )
 
+    policy_stats = state.get("stats_by_exit_policy", {}).get(EXIT_POLICY, {})
+
     return (
         "LSOB V8 BTC PAPER Status\n"
         f"Profil: {PROFILE['name']}\n"
+        "Neue Trades: Risiko:Ertrag 1:2 vor Kosten; voller TP, kein Break-even.\n"
+        f"2R-Phase: {policy_stats.get('trades', 0)} Trades, "
+        f"{policy_stats.get('net_pnl_usdt', 0.0):+.4f} USDT\n"
         f"Neue Positionen: {PAPER_NOTIONAL_USDT:.2f} USDT\n"
         f"Pending: {'JA' if state['pending'] else 'NEIN'}\n"
         f"Position: {'JA' if state['position'] else 'NEIN'}\n"

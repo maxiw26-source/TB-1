@@ -1,64 +1,41 @@
+"""Offline exit-policy, persistence, cost and legacy regression checks."""
+import json
+import math
+from tempfile import TemporaryDirectory
+from pathlib import Path
 import live_paper_v8_btc as v8
 
-
-def candle(ts, o, h, l, c):
-    return {
-        "timestamp": ts,
-        "open": o,
-        "high": h,
-        "low": l,
-        "close": c,
-        "volume": 1.0,
-    }
-
-
-long_setup = {
-    "side": "LONG",
-    "entry": 100.0,
-    "stop": 98.0,
-}
-
-position = v8.build_position(long_setup)
-
-assert position["side"] == "LONG"
-assert position["entry"] * position["qty"] == 100.0
-assert position["paper_notional_usdt"] == 100.0
-assert round(position["tp1"], 2) == 102.0
-assert round(position["tp2"], 2) == 102.6
-
-event = v8.check_position(
-    position,
-    candle(1, 100, 102.1, 99.9, 102.0),
-)
-
-assert event == "TP1"
-assert position["tp1_hit"] is True
-assert round(position["stop"], 2) == 100.0
-
-event = v8.check_position(
-    position,
-    candle(2, 102, 102.7, 101.9, 102.6),
-)
-
-assert event == "TP2"
-assert position["remaining"] == 0.0
-
-short_setup = {
-    "side": "SHORT",
-    "entry": 100.0,
-    "stop": 102.0,
-}
-
-short_position = v8.build_position(short_setup)
-
-event = v8.check_position(
-    short_position,
-    candle(3, 100, 100.1, 97.9, 98.0),
-)
-
-assert event == "TP1"
-assert short_position["tp1_hit"] is True
-assert round(short_position["stop"], 2) == 100.0
-
-print("V8 PAPER MONITOR SELFTEST ERFOLGREICH")
-print("Keine echte Order-Funktion wurde aufgerufen.")
+for side, stop, target in [('LONG', 98., 104.), ('SHORT', 102., 96.)]:
+    p = v8.build_position({'side': side, 'entry': 100., 'stop': stop})
+    assert p['tp2'] == target and p['paper_notional_usdt'] == 100.
+    assert p['exit_policy'] == v8.EXIT_POLICY
+    assert v8.check_position(p, {'high': 102.1 if side == 'LONG' else 100.1,
+                                 'low': 99.9 if side == 'LONG' else 97.9}) is None
+    assert p['remaining'] == p['qty'] and p['stop'] == stop
+    p = json.loads(json.dumps(p))
+    assert v8.check_position(p, {'high': 104.1 if side == 'LONG' else 100.1,
+                                 'low': 99.9 if side == 'LONG' else 95.9}) == 'TP2'
+    assert p['remaining'] == 0 and p['gross'] == 4.
+    assert math.isclose(p['fees'], v8.maker_fee(100., 1.) + v8.maker_fee(target, 1.))
+    state = v8.default_state(); state['position'] = p
+    with TemporaryDirectory() as folder:
+        v8.EVENT_FILE = Path(folder) / 'events.jsonl'
+        v8.notify = lambda message: None
+        v8.close_trade(state, 'TP2')
+    assert state['stats_by_exit_policy'][v8.EXIT_POLICY]['trades'] == 1
+    assert state['stats']['trades'] == 1 and state['position'] is None
+    p = v8.build_position({'side': side, 'entry': 100., 'stop': stop})
+    assert v8.check_position(p, {'high': 105., 'low': 95.}) == 'STOP'
+    assert p['gross'] == -2. and p['remaining'] == 0
+    assert math.isclose(p['slippage'], v8.slippage(stop, 1.))
+    # Existing persisted positions have no exit_policy and retain partial exits.
+    old = v8.build_position({'side': side, 'entry': 100., 'stop': stop})
+    del old['exit_policy']
+    old['tp2'] = 102.6 if side == 'LONG' else 97.4
+    assert v8.check_position(old, {'high': 102.1 if side == 'LONG' else 100.1,
+                                   'low': 99.9 if side == 'LONG' else 97.9}) == 'TP1'
+    assert math.isclose(old['remaining'], .3) and old['stop'] == 100.
+    assert v8.check_position(old, {'high': 102.7 if side == 'LONG' else 99.9,
+                                   'low': 100.1 if side == 'LONG' else 97.3}) == 'TP2'
+    assert math.isclose(old['gross'], 2.18)
+print('V8 PAPER 2R SELFTEST ERFOLGREICH: LONG/SHORT, Kosten, Neustart, Altpositionen.')
