@@ -2,6 +2,7 @@
 
 Only binds to loopback. No order endpoints, credentials, or raw state payloads.
 """
+from dashboard_history import paper_history, live_history
 import argparse
 import json
 import os
@@ -99,6 +100,9 @@ def v7_signal_reasons():
 def position_view(position):
     if not isinstance(position, dict):
         return None
+    if position.get("exit_policy") == "full_2r_v1":
+        position = dict(position, target=position.get("tp2"))
+        position.pop("tp1", None)
     return {key: (str(position[key]) if key == "side" else number(position[key]))
             for key in ("side", "entry", "stop", "target", "tp1", "tp2", "qty")
             if position.get(key) is not None}
@@ -131,6 +135,10 @@ def paper_view(payload, version):
         phase = (payload.get("stats_by_notional") or {}).get("100.00") or {}
         report["phase_100_pnl"] = number(phase.get("net_pnl_usdt"))
         report["phase_100_trades"] = int(phase.get("trades") or 0)
+    if version in ("v8_btc", "v8_ada"):
+        report["phase_2r"] = payload.get("stats_by_exit_policy", {}).get("full_2r_v1", {})
+        report["exit_rule"] = "Neue Trades: 1:2 vor Kosten · kein Teilverkauf"
+        report["legacy_position"] = bool(position and position.get("exit_policy") != "full_2r_v1")
     if version == "v20_ada":
         report["stage"] = payload.get("stage") or report["stage"]
         report["error"] = payload.get("error")
@@ -181,6 +189,7 @@ def fetch_live():
                  "open_count": sum(1 for p in open_positions if dec(p.get("qty")) > 0),
                  "unrealized": number(sum((dec(p.get("unrealizedPNL")) for p in open_positions
                                            if dec(p.get("qty")) > 0), Decimal("0"))),
+                 "history": live_history(ROOT, history),
                  "error": None, "updated_at": iso(time.time())}
     except Exception as exc:
         value = {"error": f"Bitunix-Abfrage fehlgeschlagen: {type(exc).__name__}",
@@ -214,6 +223,8 @@ def collect():
         age = round(now - heartbeat) if heartbeat else None
         fresh = age is not None and 0 <= age <= max_age
         data = (v7_view(payload) if key == "v7" else paper_view(payload, key)) if payload else {}
+        if key != "v7":
+            data["history"] = paper_history(ROOT, key)
         if key == "v7":
             data["signal_reasons"] = v7_reasons
         if service_state != "active":

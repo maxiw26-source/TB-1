@@ -288,6 +288,7 @@ def close_part(position, price, qty, reason):
     else:
         position["fees"] += maker_fee(price, qty)
 
+    position["last_exit_price"] = float(price)
     position["remaining"] -= qty
     if position["remaining"] < 1e-12:
         position["remaining"] = 0.0
@@ -425,6 +426,13 @@ def close_trade(state, reason):
         stats["losses"] += 1
 
     details = {
+        "entry_ts": position.get("opened_at", 0) * 1000,
+        "initial_stop": position.get("initial_stop"),
+        "qty": position["qty"],
+        "exit": position.get("last_exit_price"),
+        "gross": position["gross"],
+        "fees": position["fees"],
+        "slippage": position["slippage"],
         "side": position["side"],
         "reason": reason,
         "exit_policy": policy,
