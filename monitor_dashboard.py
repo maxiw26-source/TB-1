@@ -27,7 +27,7 @@ SERVICES = (
     ("v8_ada_be", "V8 · ADA 2R + Break-even Test", "lsob-v8-be-paper@ADA", "paper", "v8_ada_be_paper_state.json"),
     ("v12_ada", "V12 · ADA 1H Trend", "lsob-v12-ada-paper", "paper", "v12_ada_paper_state.json"),
 )
-GRID_STATUS_PATH = Path("/home/botlab/backtest-lab/results/ada_grid_forward_7d/status.json")
+GRID_COINS = ('BTC', 'ETH', 'SOL', 'ADA', 'DOGE', 'SUI')
 LIVE_CACHE = {"at": 0, "loading": False, "value": None}
 LIVE_LOCK = threading.Lock()
 
@@ -242,20 +242,22 @@ def collect():
         bots.append({"id": key, "label": label, "mode": mode,
                      "service": service_state, "fresh": fresh, "state_at": iso(mtime) if mtime else None,
                      "age_seconds": age, "error": error, **data})
-    bots.append(grid_paper_view(now))
+    bots.extend(grid_paper_view(now, coin) for coin in GRID_COINS)
     return {"generated_at": iso(now), "bots": bots, "v7_exchange": live_view()}
 
 
-def grid_paper_view(now):
+def grid_paper_view(now, coin):
     """Read-only, allowlisted public-facing summary; never expose raw state."""
-    info = {"id": "ada_grid_paper", "kind": "grid",
-            "label": "ADA · Spot Grid · 7 Tage",
+    assert coin in GRID_COINS
+    status_path = Path(f"/home/botlab/backtest-lab/results/{coin.lower()}_grid_forward_7d/status.json")
+    info = {"id": f"{coin.lower()}_grid_paper", "kind": "grid",
+            "coin": coin, "label": f"{coin} · Spot Grid · 7 Tage",
             "mode": "paper", "service": "inactive", "fresh": False,
             "stage": "Keine Statusdaten", "state_at": None,
             "age_seconds": None, "error": None}
     try:
-        mtime = GRID_STATUS_PATH.stat().st_mtime
-        payload = json.loads(GRID_STATUS_PATH.read_text(encoding="utf-8"))
+        mtime = status_path.stat().st_mtime
+        payload = json.loads(status_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("mode") != "PAPER_NO_ORDERS":
             raise ValueError("invalid paper status")
     except (OSError, ValueError):
