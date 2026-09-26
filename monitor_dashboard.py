@@ -27,6 +27,7 @@ SERVICES = (
     ("v8_ada_be", "V8 · ADA 2R + Break-even Test", "lsob-v8-be-paper@ADA", "paper", "v8_ada_be_paper_state.json"),
     ("v12_ada", "V12 · ADA 1H Trend", "lsob-v12-ada-paper", "paper", "v12_ada_paper_state.json"),
 )
+GRID_STATUS_PATH = Path("/home/botlab/backtest-lab/results/ada_grid_forward_7d/status.json")
 LIVE_CACHE = {"at": 0, "loading": False, "value": None}
 LIVE_LOCK = threading.Lock()
 
@@ -241,7 +242,53 @@ def collect():
         bots.append({"id": key, "label": label, "mode": mode,
                      "service": service_state, "fresh": fresh, "state_at": iso(mtime) if mtime else None,
                      "age_seconds": age, "error": error, **data})
+    bots.append(grid_paper_view(now))
     return {"generated_at": iso(now), "bots": bots, "v7_exchange": live_view()}
+
+
+def grid_paper_view(now):
+    """Read-only, allowlisted public-facing summary; never expose raw state."""
+    info = {"id": "ada_grid_paper", "kind": "grid",
+            "label": "ADA · Spot Grid · 7 Tage",
+            "mode": "paper", "service": "inactive", "fresh": False,
+            "stage": "Keine Statusdaten", "state_at": None,
+            "age_seconds": None, "error": None}
+    try:
+        mtime = GRID_STATUS_PATH.stat().st_mtime
+        payload = json.loads(GRID_STATUS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("mode") != "PAPER_NO_ORDERS":
+            raise ValueError("invalid paper status")
+    except (OSError, ValueError):
+        info["error"] = "Grid-Paper-Status nicht verfügbar"
+        return info
+    age = round(now - mtime)
+    fresh = 0 <= age <= 180
+    finished = payload.get("state") == "FINISHED"
+    running = payload.get("state") == "RUNNING"
+    info.update(service="finished" if finished else "active" if running and fresh else "inactive",
+                fresh=fresh, state_at=iso(mtime), age_seconds=age,
+                stage="Test abgeschlossen" if finished else
+                      "Daten veraltet" if not fresh else
+                      "Handelspause · Ausbruchsschutz" if payload.get("paused") else
+                      "Grid aktiv · wartet auf Kursbewegung",
+                pnl=number(payload.get("liquidation_pnl_usdt")),
+                equity=number(payload.get("liquidation_equity_usdt")),
+                quote=number(payload.get("quote_usdt")),
+                base=number(payload.get("base_ada")),
+                bid=number(payload.get("bid")),
+                lower=number(payload.get("lower")),
+                upper=number(payload.get("upper")),
+                max_drawdown_pct=number(payload.get("max_drawdown_pct")),
+                fills=int(payload.get("simulated_fills") or 0),
+                buys=int(payload.get("buys") or 0),
+                sells=int(payload.get("sells") or 0),
+                pauses=int(payload.get("pause_count") or 0),
+                paused=bool(payload.get("paused")),
+                fees=number(payload.get("fees_usdt")),
+                slippage=number(payload.get("slippage_usdt")),
+                started_at=payload.get("started_utc"),
+                ends_at=payload.get("ends_utc"))
+    return info
 
 
 class Handler(BaseHTTPRequestHandler):
