@@ -27,7 +27,7 @@ SERVICES = (
     ("v8_ada_be", "V8 · ADA 2R + Break-even Test", "lsob-v8-be-paper@ADA", "paper", "v8_ada_be_paper_state.json"),
     ("v12_ada", "V12 · ADA 1H Trend", "lsob-v12-ada-paper", "paper", "v12_ada_paper_state.json"),
 )
-GRID_COINS = ('BTC', 'ETH', 'SOL', 'ADA', 'DOGE', 'SUI')
+GRID_COINS = ('BTC', 'ETH', 'SOL', 'ADA', 'DOGE', 'SUI', 'ENA', 'XRP', 'RARE')
 LIVE_CACHE = {"at": 0, "loading": False, "value": None}
 LIVE_LOCK = threading.Lock()
 
