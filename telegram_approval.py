@@ -11,6 +11,11 @@ from bot_runtime import (
 )
 from bitunix_live import live_execution_status
 from live_auto_mode import auto_live_status
+from v8_ada_approval_runtime import (
+    approve_v8_ada_order,
+    read_v8_ada_approval,
+    reject_v8_ada_order,
+)
 
 
 STATE_FILE = Path("telegram_state.json")
@@ -305,6 +310,37 @@ def process_updates():
                 actions.append(
                     "REJECTED"
                 )
+
+        elif text == "/approve_v8ada":
+            approval = approve_v8_ada_order()
+            if approval is None:
+                send_message("V8 ADA: keine wartende Bestätigung.")
+            else:
+                send_message("V8 ADA bestätigt. Der V8-ADA-Dienst führt nach Preflight aus.")
+                actions.append("V8_ADA_APPROVED")
+
+        elif text == "/reject_v8ada":
+            approval = reject_v8_ada_order()
+            if approval is None:
+                send_message("V8 ADA: keine wartende Bestätigung.")
+            else:
+                send_message("V8 ADA Plan abgelehnt.")
+                actions.append("V8_ADA_REJECTED")
+
+        elif text == "/status_v8ada":
+            approval = read_v8_ada_approval()
+            if not approval:
+                send_message("V8 ADA: keine wartende Bestätigung.")
+            else:
+                plan = approval.get("plan", {})
+                send_message(
+                    "V8 ADA Status\n"
+                    f"Approval: {approval.get('status', 'UNKNOWN')}\n"
+                    f"Symbol: {plan.get('symbol', '-')}\n"
+                    f"Seite: {plan.get('side', '-')}\n"
+                    f"Menge: {plan.get('qty', '-')}"
+                )
+            actions.append("V8_ADA_STATUS")
 
         elif text == "/status":
             send_message(
