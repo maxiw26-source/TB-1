@@ -1,5 +1,5 @@
 [Unit]
-Description=LSOB read-only local bot dashboard
+Description=LSOB local bot dashboard
 After=network.target
 
 [Service]
