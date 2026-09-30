@@ -280,7 +280,7 @@ def v8_ada_live_status():
         "allowed_symbols": env.get("LIVE_ALLOWED_SYMBOLS") or "ADAUSDT",
         "live_execution_configured": str(env.get("ENABLE_LIVE_EXECUTION", "")).lower() in {"1", "true", "yes", "ja", "on"},
         "auto_live_switch": str(env.get("ENABLE_AUTO_LIVE_EXECUTION", "")).lower() in {"1", "true", "yes", "ja", "on"},
-        "execution_path": "Telegram-Freigabe",
+        "execution_path": ("Auto-Live" if str(env.get("ENABLE_AUTO_LIVE_EXECUTION", "")).lower() in {"1", "true", "yes", "ja", "on"} else "Telegram-Freigabe"),
         "latest_live_event": latest_event,
         "last_live_error": last_error,
     }
