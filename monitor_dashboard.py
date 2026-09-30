@@ -22,7 +22,7 @@ SERVICES = (
     ("v20_ada", "V20 · ADA Support / Resistance", "lsob-v20-ada-paper", "paper", "v20_ada_paper_state.json"),
     ("v7", "V7 · BTC / ETH", "lsob-v7", "real", "runtime_state.json"),
     ("v8_btc", "V8 · BTC Balanced", "lsob-v8-paper", "paper", "v8_paper_state.json"),
-    ("v8_ada", "V8 · ADA Expiry", "lsob-v8-ada-paper", "paper", "v8_ada_paper_state.json"),
+    ("v8_ada", "V8 · ADA Expiry", "lsob-v8-ada-approval", "real", "v8_ada_paper_state.json"),
     ("v8_btc_be", "V8 · BTC 2R + Break-even Test", "lsob-v8-be-paper@BTC", "paper", "v8_btc_be_paper_state.json"),
     ("v8_ada_be", "V8 · ADA 2R + Break-even Test", "lsob-v8-be-paper@ADA", "paper", "v8_ada_be_paper_state.json"),
     ("v12_ada", "V12 · ADA 1H Trend", "lsob-v12-ada-paper", "paper", "v12_ada_paper_state.json"),
@@ -214,6 +214,142 @@ def live_view():
         return dict(LIVE_CACHE["value"] or {"error": "Bitunix-Daten werden geladen"})
 
 
+
+def selected_service_env(service, keys):
+    """Return only explicitly allowlisted non-secret service environment values."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", service, "--property=Environment", "--value"],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        raw = result.stdout or ""
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    values = {}
+    for key in keys:
+        match = re.search(r"(?:^|\\s)" + re.escape(key) + r"=([^\\s]+)", raw)
+        if match:
+            values[key] = match.group(1).strip().strip('"').strip("'")
+    return values
+
+
+def v8_ada_live_status():
+    approval, _, _ = read_state("v8_ada_pending_approval.json")
+    env = selected_service_env(
+        "lsob-v8-ada-approval",
+        (
+            "LIVE_MAX_NOTIONAL_USDT",
+            "LIVE_ALLOWED_SYMBOLS",
+            "ENABLE_AUTO_LIVE_EXECUTION",
+            "ENABLE_LIVE_EXECUTION",
+        ),
+    )
+    latest_event = None
+    last_error = None
+    event_path = ROOT / "v8_ada_paper_events.jsonl"
+    try:
+        lines = event_path.read_text(encoding="utf-8").splitlines()[-250:]
+        for raw in reversed(lines):
+            try:
+                row = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            event = str(row.get("event") or "")
+            if latest_event is None and event.startswith("V8_ADA_LIVE_"):
+                latest_event = {
+                    "event": event,
+                    "at": iso(int(row.get("timestamp") or 0)) if row.get("timestamp") else None,
+                }
+            if last_error is None and event in {
+                "V8_ADA_LIVE_BLOCKED",
+                "V8_ADA_LIVE_LOOP_ERROR",
+            }:
+                details = row.get("details") or {}
+                last_error = str(details.get("error") or details.get("reason") or event)[:180]
+            if latest_event is not None and last_error is not None:
+                break
+    except OSError:
+        pass
+
+    return {
+        "approval_status": approval.get("status") if isinstance(approval, dict) else None,
+        "approval_waiting": isinstance(approval, dict) and approval.get("status") == "WAITING",
+        "max_notional_usdt": number(env.get("LIVE_MAX_NOTIONAL_USDT")) or 10.0,
+        "allowed_symbols": env.get("LIVE_ALLOWED_SYMBOLS") or "ADAUSDT",
+        "live_execution_configured": str(env.get("ENABLE_LIVE_EXECUTION", "")).lower() in {"1", "true", "yes", "ja", "on"},
+        "auto_live_switch": str(env.get("ENABLE_AUTO_LIVE_EXECUTION", "")).lower() in {"1", "true", "yes", "ja", "on"},
+        "execution_path": "Telegram-Freigabe",
+        "latest_live_event": latest_event,
+        "last_live_error": last_error,
+    }
+
+
+def ada_exchange_view():
+    """Read-only ADA account summary. May include manual/non-V8 ADA trades."""
+    try:
+        os.chdir(ROOT)
+        from morning_summary import get_history_positions, load_env_file, dec
+        from bitunix_live import get_pending_positions
+        load_env_file()
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(days=30)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        history = get_history_positions("ADAUSDT")
+
+        def total(start):
+            return sum(
+                (
+                    dec(row.get("realizedPNL"))
+                    - dec(row.get("fee"))
+                    + dec(row.get("funding"))
+                    for row in history
+                    if int(row.get("mtime") or 0) >= int(start.timestamp() * 1000)
+                ),
+                Decimal("0"),
+            )
+
+        positions = [
+            p for p in get_pending_positions("ADAUSDT")
+            if dec(p.get("qty")) > 0
+        ]
+        latest = None
+        if history:
+            row = max(history, key=lambda item: int(item.get("mtime") or 0))
+            latest = {
+                "side": row.get("side"),
+                "net": number(
+                    dec(row.get("realizedPNL"))
+                    - dec(row.get("fee"))
+                    + dec(row.get("funding"))
+                ),
+                "closed_at": iso(int(row.get("mtime") or 0) / 1000)
+                if row.get("mtime") else None,
+            }
+
+        open_position = None
+        if positions:
+            p = positions[0]
+            open_position = {
+                "side": p.get("side"),
+                "qty": number(p.get("qty")),
+                "entry": number(p.get("avgOpenPrice") or p.get("entryPrice")),
+                "unrealized": number(p.get("unrealizedPNL")),
+            }
+
+        return {
+            "today_utc": number(total(today)),
+            "last_30d": number(total(since)),
+            "open_count": len(positions),
+            "open_position": open_position,
+            "latest_closed": latest,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "error": f"ADA Bitunix-Abfrage fehlgeschlagen: {type(exc).__name__}"
+        }
+
+
 def collect():
     states = systemd_states()
     bots = []
@@ -235,6 +371,9 @@ def collect():
             data["history"] = paper_history(ROOT, key)
         if key == "v7":
             data["signal_reasons"] = v7_reasons
+        if key == "v8_ada":
+            data["live_status"] = v8_ada_live_status()
+            data["ada_exchange"] = ada_exchange_view()
         if service_state != "active":
             data["stage"] = "Dienst aus" if service_state == "inactive" else "Dienst prüfen"
         elif not fresh:
