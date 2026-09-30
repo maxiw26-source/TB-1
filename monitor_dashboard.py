@@ -229,7 +229,7 @@ def selected_service_env(service, keys):
         return {}
     values = {}
     for key in keys:
-        match = re.search(r"(?:^|\\s)" + re.escape(key) + r"=([^\\s]+)", raw)
+        match = re.search(r"(?:^|\s)" + re.escape(key) + r"=([^\s]+)", raw)
         if match:
             values[key] = match.group(1).strip().strip('"').strip("'")
     return values
