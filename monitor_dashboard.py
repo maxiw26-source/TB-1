@@ -1,6 +1,7 @@
-"""Read-only local dashboard for the running LSOB services.
+"""Local dashboard for the running LSOB services.
 
-Only binds to loopback. No order endpoints, credentials, or raw state payloads.
+Only binds to loopback. The only write action is an allowlisted start/stop control
+for the V8 ADA service; there are no generic command or order endpoints.
 """
 from dashboard_history import paper_history, live_history
 import argparse
@@ -447,7 +448,56 @@ def grid_paper_view(now, coin):
     return info
 
 
+def set_v8_ada_service(action):
+    """Start or stop only the allowlisted V8 ADA service."""
+    if action not in {"start", "stop"}:
+        return False, "Ungültige Aktion"
+    try:
+        result = subprocess.run(
+            ["systemctl", action, "lsob-v8-ada-approval"],
+            capture_output=True, text=True, timeout=8, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"systemctl fehlgeschlagen: {type(exc).__name__}"
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "systemctl Fehler").strip()
+        return False, message[:180]
+    try:
+        state = subprocess.run(
+            ["systemctl", "is-active", "lsob-v8-ada-approval"],
+            capture_output=True, text=True, timeout=3, check=False,
+        ).stdout.strip() or "unbekannt"
+    except (OSError, subprocess.TimeoutExpired):
+        state = "unbekannt"
+    return True, state
+
+
 class Handler(BaseHTTPRequestHandler):
+    def _json(self, status, payload):
+        content = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(content)
+
+    def do_POST(self):
+        path = urlsplit(self.path).path
+        if self.headers.get("X-LSOB-Action") != "v8-ada-service-control":
+            self._json(403, {"ok": False, "error": "Aktion nicht erlaubt"})
+            return
+        if path == "/api/v8-ada/start":
+            action = "start"
+        elif path == "/api/v8-ada/stop":
+            action = "stop"
+        else:
+            self._json(404, {"ok": False, "error": "Unbekannte Aktion"})
+            return
+        ok, detail = set_v8_ada_service(action)
+        self._json(200 if ok else 500, {"ok": ok, "service": detail})
+
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/api/status":
