@@ -1,0 +1,21 @@
+[Unit]
+Description=LSOB V8 ADA Approval-Gated Live Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/TB-1
+Environment=ENABLE_LIVE_EXECUTION=true
+Environment=LIVE_EXECUTION_ACK=I_UNDERSTAND_REAL_ORDERS
+Environment=LIVE_ALLOWED_SYMBOLS=ADAUSDT
+Environment=LIVE_MAX_NOTIONAL_USDT=10
+Environment=LIVE_MAX_ENTRY_DEVIATION_PERCENT=0.20
+Environment=LIVE_MAX_APPROVAL_AGE_SECONDS=120
+Environment=ENABLE_AUTO_LIVE_EXECUTION=false
+ExecStart=/root/TB-1/venv/bin/python -u /root/TB-1/live_v8_ada_approval.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
