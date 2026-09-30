@@ -30,6 +30,7 @@ SERVICES = (
 GRID_COINS = ('BTC', 'ETH', 'SOL', 'ADA', 'DOGE', 'SUI', 'ENA', 'XRP', 'RARE')
 LIVE_CACHE = {"at": 0, "loading": False, "value": None}
 LIVE_LOCK = threading.Lock()
+V8_ADA_LIVE_STATS_START_UTC = datetime(2026, 9, 30, 7, 42, tzinfo=timezone.utc)
 
 
 def iso(ts):
@@ -294,7 +295,12 @@ def ada_exchange_view():
         now = datetime.now(timezone.utc)
         since = now - timedelta(days=30)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        live_start = V8_ADA_LIVE_STATS_START_UTC
         history = get_history_positions("ADAUSDT")
+        live_history_rows = [
+            row for row in history
+            if int(row.get("mtime") or 0) >= int(live_start.timestamp() * 1000)
+        ]
 
         def total(start):
             return sum(
@@ -313,8 +319,8 @@ def ada_exchange_view():
             if dec(p.get("qty")) > 0
         ]
         latest = None
-        if history:
-            row = max(history, key=lambda item: int(item.get("mtime") or 0))
+        if live_history_rows:
+            row = max(live_history_rows, key=lambda item: int(item.get("mtime") or 0))
             latest = {
                 "side": row.get("side"),
                 "net": number(
@@ -336,9 +342,18 @@ def ada_exchange_view():
                 "unrealized": number(p.get("unrealizedPNL")),
             }
 
+        live_nets = [
+            dec(row.get("realizedPNL")) - dec(row.get("fee")) + dec(row.get("funding"))
+            for row in live_history_rows
+        ]
         return {
             "today_utc": number(total(today)),
             "last_30d": number(total(since)),
+            "stats_started_at": live_start.isoformat(),
+            "since_start": number(sum(live_nets, Decimal("0"))),
+            "trades_since_start": len(live_nets),
+            "wins_since_start": sum(1 for net in live_nets if net > 0),
+            "losses_since_start": sum(1 for net in live_nets if net <= 0),
             "open_count": len(positions),
             "open_position": open_position,
             "latest_closed": latest,
